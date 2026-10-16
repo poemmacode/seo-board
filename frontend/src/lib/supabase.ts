@@ -67,6 +67,13 @@ export interface AuditRow {
   };
   content_stats: { word_count: number; reading_time_min: number; text_snippet: string };
   issues: Array<{ category: string; severity: string; title: string; message: string }>;
+  tech_summary: {
+    is_https: boolean;
+    redirected_to_https: boolean;
+    analytics: Array<{ provider: string; evidence: string }>;
+    schema_types: string[];
+    hreflang: Array<{ lang: string; href: string }>;
+  };
   ai_analysis: {
     search_intent: string;
     intent_explanation: string;
@@ -75,5 +82,19 @@ export interface AuditRow {
     content_evaluation: Record<string, unknown>;
     geo_aeo_recommendations: string[];
   } | null;
+  crawl_summary: {
+    robots: { found: boolean; allows_page: boolean | null; blocks_ai_bots: string[]; ai_bots_allowed: string[]; sitemaps_declared: string[] };
+    sitemap: { checked: boolean; sitemap_url: string | null; url_included: boolean | null; urls_count: number | null };
+    indexability: { verdict: "indexable" | "blocked"; reasons: string[] };
+    ai_readiness: { ready: boolean; notes: string[] };
+  };
+  perf_summary: {
+    strategy: string;
+    lab: { lcp_ms: number | null; cls: number | null; inp_ms: number | null; fcp_ms: number | null; ttfb_ms: number | null; score_0_100: number | null };
+    field: { lcp_p75_ms: number | null; cls_p75: number | null; inp_p75_ms: number | null; overall: string | null };
+    opportunities: Array<{ id: string; title: string; savings_ms: number }>;
+    fetched_at: string;
+  } | null;
+  project_id: string | null;
   created_at: string;
 }

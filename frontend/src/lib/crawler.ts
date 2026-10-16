@@ -50,6 +50,8 @@ export interface ExtractedAudit {
   images_summary: ImagesSummary;
   links_summary: LinksSummary;
   structured_data: StructuredDataSummary;
+  analytics_summary: { detected: { provider: string; evidence: string }[] };
+  hreflang: { lang: string; href: string }[];
   content_stats: ContentStats;
   issues: AuditIssue[];
 }
@@ -121,6 +123,7 @@ export async function fetchAndExtract(rawUrl: string): Promise<ExtractedAudit> {
     latencyMs,
     isRedirect,
     redirectUrl: isRedirect ? finalUrl : null,
+    redirectedToHttps: normalized.toLowerCase().startsWith("http://") && finalUrl.toLowerCase().startsWith("https://"),
   });
 }
 
@@ -131,10 +134,11 @@ interface ParseInput {
   latencyMs: number;
   isRedirect: boolean;
   redirectUrl: string | null;
+  redirectedToHttps: boolean;
 }
 
 export function parseHtml(input: ParseInput): ExtractedAudit {
-  const { html, baseUrl, statusCode, latencyMs, isRedirect, redirectUrl } = input;
+  const { html, baseUrl, statusCode, latencyMs, isRedirect, redirectUrl, redirectedToHttps } = input;
   const domain = new URL(baseUrl).hostname;
   const $ = load(html);
 
@@ -273,8 +277,19 @@ export function parseHtml(input: ParseInput): ExtractedAudit {
   // 6. Contenido y palabras
   const content_stats = extractContentStats(html);
 
+  // 6b. Analítica y hreflang
+  const analytics_summary = { detected: detectAnalytics($) };
+  const hreflang: ExtractedAudit["hreflang"] = [];
+  $('link[rel="alternate"][hreflang]').each((_, el) => {
+    const lang = ($(el).attr("hreflang") ?? "").trim();
+    const href = ($(el).attr("href") ?? "").trim();
+    if (lang && href) hreflang.push({ lang, href: resolveUrl(href, baseUrl) ?? href });
+  });
+
   // 7. Diagnósticos
   const issues = calculateIssues({
+    pageUrl: baseUrl,
+    redirectedToHttps,
     statusCode,
     latencyMs,
     title,
@@ -287,6 +302,9 @@ export function parseHtml(input: ParseInput): ExtractedAudit {
     headings_summary,
     images_summary,
     content_stats,
+    analytics: analytics_summary.detected,
+    schema_types: structured_data.detected_types,
+    hreflang,
   });
 
   return {
@@ -309,6 +327,8 @@ export function parseHtml(input: ParseInput): ExtractedAudit {
     images_summary,
     links_summary,
     structured_data,
+    analytics_summary,
+    hreflang,
     content_stats,
     issues,
   };
@@ -336,6 +356,47 @@ function extractTypes(item: Record<string, unknown>, acc: string[]): void {
   }
 }
 
+const ANALYTICS_SIGNATURES: { provider: string; patterns: RegExp[] }[] = [
+  { provider: "Google Analytics 4", patterns: [/googletagmanager\.com\/gta?g\.js/i, /gtag\(\s*['"]config['"]/i] },
+  { provider: "Universal Analytics", patterns: [/google-analytics\.com\/analytics\.js/i] },
+  { provider: "Google Tag Manager", patterns: [/googletagmanager\.com\/gtm\.js/i, /googletagmanager\.com\/ns\.html/i] },
+  { provider: "Meta Pixel", patterns: [/connect\.facebook\.net\/[^'"]*fbevents/i, /fbq\(\s*['"]init['"]/i] },
+  { provider: "Hotjar", patterns: [/hotjar\.com/i] },
+  { provider: "Microsoft Clarity", patterns: [/clarity\.ms/i] },
+  { provider: "Matomo", patterns: [/matomo\.js/i, /piwik\.js/i] },
+  { provider: "Plausible", patterns: [/plausible\.io\/js/i] },
+  { provider: "Segment", patterns: [/cdn\.segment\.(com|io)/i] },
+  { provider: "Mixpanel", patterns: [/cdn\.mxpnl\.com|mixpanel/i] },
+  { provider: "LinkedIn Insight", patterns: [/snap\.licdn\.com|linkedin.*insight/i] },
+  { provider: "TikTok Pixel", patterns: [/analytics\.tiktok\.com/i] },
+];
+
+function detectAnalytics($: ReturnType<typeof load>): { provider: string; evidence: string }[] {
+  const haystacks: string[] = [];
+  $("script[src]").each((_, el) => {
+    const src = ($(el).attr("src") ?? "").trim();
+    if (src) haystacks.push(`src:${src}`);
+  });
+  let budget = 40_000;
+  $("script:not([src])").each((_, el) => {
+    if (budget <= 0) return;
+    const text = ($(el).html() ?? "").slice(0, budget);
+    if (text.trim()) haystacks.push(`inline:${text.slice(0, 200)}`);
+    budget -= text.length;
+  });
+  const found: { provider: string; evidence: string }[] = [];
+  const seen = new Set<string>();
+  for (const sig of ANALYTICS_SIGNATURES) {
+    if (seen.has(sig.provider)) continue;
+    const line = haystacks.find((h) => sig.patterns.some((p) => p.test(h)));
+    if (line) {
+      seen.add(sig.provider);
+      found.push({ provider: sig.provider, evidence: line.slice(0, 140) });
+    }
+  }
+  return found;
+}
+
 function extractContentStats(html: string): ContentStats {
   const $t = load(html);
   $t("script, style, nav, noscript, svg, header, footer").remove();
@@ -356,6 +417,8 @@ function extractContentStats(html: string): ContentStats {
 }
 
 interface IssueInput {
+  pageUrl: string;
+  redirectedToHttps: boolean;
   statusCode: number;
   latencyMs: number;
   title: string | null;
@@ -368,11 +431,16 @@ interface IssueInput {
   headings_summary: ExtractedAudit["headings_summary"];
   images_summary: ImagesSummary;
   content_stats: ContentStats;
+  analytics: { provider: string; evidence: string }[];
+  schema_types: string[];
+  hreflang: { lang: string; href: string }[];
 }
 
 function calculateIssues(input: IssueInput): AuditIssue[] {
   const issues: AuditIssue[] = [];
   const {
+    pageUrl,
+    redirectedToHttps,
     statusCode,
     latencyMs,
     title,
@@ -385,6 +453,9 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     headings_summary,
     images_summary,
     content_stats,
+    analytics,
+    schema_types,
+    hreflang,
   } = input;
 
   if (statusCode !== 200) {
@@ -565,6 +636,90 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
       severity: "warning",
       title: "Directiva 'noindex' detectada",
       message: `La directiva robots '${robots_meta}' impide que los motores de búsqueda indexen esta página.`,
+    });
+  }
+
+  // HTTPS: Google lo exige como señal de confianza y ranking
+  let protocol = "";
+  try {
+    protocol = new URL(pageUrl).protocol;
+  } catch {
+    protocol = "";
+  }
+  if (protocol === "http:") {
+    issues.push({
+      category: "Security",
+      severity: "critical",
+      title: "La página se sirve por HTTP",
+      message: "Sin HTTPS los navegadores marcan la página como no segura y Google penaliza el ranking. Migra a HTTPS con certificado válido y redirección 301.",
+    });
+  } else if (redirectedToHttps) {
+    issues.push({
+      category: "Security",
+      severity: "warning",
+      title: "Redirige HTTP → HTTPS",
+      message: "La versión HTTP redirige a HTTPS. Actualiza enlaces internos y canonical a la versión HTTPS para evitar saltos.",
+    });
+  } else if (protocol === "https:") {
+    issues.push({
+      category: "Security",
+      severity: "ok",
+      title: "HTTPS activo",
+      message: "La página se sirve con cifrado HTTPS.",
+    });
+  }
+
+  // Canonical que apunta fuera: posible duplicado o consolidación no deseada
+  if (canonical_url && stripTrailingSlash(canonical_url) !== stripTrailingSlash(pageUrl)) {
+    issues.push({
+      category: "Indexing",
+      severity: "warning",
+      title: "Canonical apunta a otra URL",
+      message: `El canonical (${canonical_url}) difiere de la URL auditada. Solo es correcto si quieres consolidar el ranking en esa otra URL.`,
+    });
+  }
+
+  // Analítica y medición
+  if (analytics.length === 0) {
+    issues.push({
+      category: "Tracking",
+      severity: "warning",
+      title: "Sin scripts de analítica detectados",
+      message: "No se encontró GA4, GTM, Pixel ni otra herramienta de medición. Sin datos no hay optimización posible.",
+    });
+  } else {
+    issues.push({
+      category: "Tracking",
+      severity: "ok",
+      title: `Medición activa: ${analytics.map((a) => a.provider).join(", ")}`,
+      message: `Se detectaron ${analytics.length} herramienta(s) de analítica en la página.`,
+    });
+  }
+
+  // Datos estructurados Schema.org
+  if (schema_types.length === 0) {
+    issues.push({
+      category: "Schemas",
+      severity: "warning",
+      title: "Sin datos estructurados (Schema.org)",
+      message: "No hay JSON-LD. Añade schemas (Article, FAQPage, Product…) para rich results y citas en motores de respuesta.",
+    });
+  } else {
+    issues.push({
+      category: "Schemas",
+      severity: "ok",
+      title: `${schema_types.length} tipo(s) Schema.org: ${schema_types.slice(0, 4).join(", ")}`,
+      message: "Datos estructurados presentes para rich results y GEO/AEO.",
+    });
+  }
+
+  // Hreflang (solo informa cuando existe)
+  if (hreflang.length > 0) {
+    issues.push({
+      category: "Indexing",
+      severity: "ok",
+      title: `${hreflang.length} etiqueta(s) hreflang`,
+      message: `Idiomas/regiones: ${hreflang.map((h) => h.lang).slice(0, 6).join(", ")}.`,
     });
   }
 

@@ -27,6 +27,22 @@ export function rowToResponse(row: AuditRow): AuditResponse {
     content_stats: row.content_stats,
     issues: row.issues ?? [],
     ai_analysis: row.ai_analysis,
+    tech_summary: row.tech_summary ?? {
+      is_https: false,
+      redirected_to_https: false,
+      analytics: [],
+      schema_types: [],
+      hreflang: [],
+    },
+    crawl_summary: row.crawl_summary ?? {
+      robots: { found: false, allows_page: null, blocks_ai_bots: [], ai_bots_allowed: [], sitemaps_declared: [] },
+      sitemap: { checked: false, sitemap_url: null, url_included: null, urls_count: null },
+      indexability: { verdict: "indexable", reasons: [] },
+      ai_readiness: { ready: false, notes: [] },
+    },
+    perf_summary: row.perf_summary ?? null,
+    project_id: row.project_id ?? null,
+    project_slug: null,
     created_at: row.created_at,
   };
 }

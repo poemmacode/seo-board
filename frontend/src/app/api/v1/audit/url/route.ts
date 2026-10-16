@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { fetchAndExtract, CrawlerException } from "@/lib/crawler";
 import { analyzeAudit } from "@/lib/ai";
+import { fetchPerfSummary, perfIssues } from "@/lib/perf";
+import { analyzeCrawlability } from "@/lib/crawlability";
+import { calculateScoreFromCounts } from "@/lib/score";
+import { upsertProject, updateProjectStats } from "@/lib/projects";
 import { getSupabase, type AuditRow } from "@/lib/supabase";
 import { rowToResponse } from "@/lib/audit-map";
 
@@ -32,7 +36,26 @@ export async function POST(req: Request) {
     throw e;
   }
 
-  // 2. Capa IA opcional (nunca bloquea la auditoría si falla)
+  const isNoindex = (data.robots_meta ?? "").toLowerCase().includes("noindex");
+
+  // 2. CWV (PageSpeed) + crawleabilidad en paralelo. Nunca bloquean la auditoría.
+  const [perf, crawl] = await Promise.all([
+    fetchPerfSummary(data.url),
+    analyzeCrawlability({
+      pageUrl: data.url,
+      isNoindex,
+      canonicalUrl: data.canonical_url,
+      schemaTypes: data.structured_data.detected_types,
+      wordCount: data.content_stats.word_count,
+    }),
+  ]);
+
+  const issues = [...data.issues, ...perfIssues(perf), ...crawl.issues];
+  const critical = issues.filter((i) => i.severity === "critical").length;
+  const warning = issues.filter((i) => i.severity === "warning").length;
+  const score = calculateScoreFromCounts(critical, warning).score;
+
+  // 3. Capa IA opcional (nunca bloquea la auditoría si falla)
   let aiAnalysis: AuditRow["ai_analysis"] = null;
   if (includeAi) {
     try {
@@ -49,8 +72,23 @@ export async function POST(req: Request) {
     }
   }
 
-  // 3. Persistencia en Supabase
+  // 4. Proyecto por dominio + persistencia en Supabase
   const supabase = getSupabase();
+  const project = await upsertProject(supabase, data.url);
+
+  const rawLower = rawUrl.toLowerCase();
+  const finalLower = data.url.toLowerCase();
+  const techSummary = {
+    is_https: finalLower.startsWith("https://"),
+    redirected_to_https:
+      (rawLower.startsWith("http://") || !/^[a-z]+:\/\//.test(rawLower)) &&
+      finalLower.startsWith("https://") &&
+      data.is_redirect,
+    analytics: data.analytics_summary.detected,
+    schema_types: data.structured_data.detected_types,
+    hreflang: data.hreflang,
+  };
+
   const { data: row, error } = await supabase
     .from("audits")
     .insert({
@@ -74,8 +112,12 @@ export async function POST(req: Request) {
       links_summary: data.links_summary,
       structured_data: data.structured_data,
       content_stats: data.content_stats,
-      issues: data.issues,
+      issues,
       ai_analysis: aiAnalysis,
+      tech_summary: techSummary,
+      crawl_summary: crawl.summary,
+      perf_summary: perf,
+      project_id: project?.id ?? null,
     })
     .select()
     .single();
@@ -87,5 +129,10 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json(rowToResponse(row as AuditRow), { status: 201 });
+  if (project) await updateProjectStats(supabase, project.id, score);
+
+  return NextResponse.json(
+    { ...rowToResponse(row as AuditRow), project_slug: project?.slug ?? null },
+    { status: 201 }
+  );
 }

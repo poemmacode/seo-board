@@ -6,9 +6,12 @@ import ScoreCard from "@/components/ScoreCard";
 import ScoreRing from "@/components/ScoreRing";
 import HeadingTree from "@/components/HeadingTree";
 import IssuesList from "@/components/IssuesList";
+import CwvCard from "@/components/CwvCard";
+import CrawlTechCard from "@/components/CrawlTechCard";
 import AIRecommendations from "@/components/AIRecommendations";
 import HistorySidebar from "@/components/HistorySidebar";
 import SerpVisualizer from "@/components/SerpVisualizer";
+import BulkPanel from "@/components/BulkPanel";
 import { auditUrl, fetchAudit, fetchHistory, rerunAi, deleteAudit } from "@/lib/api";
 import { calculateScoreFromIssues } from "@/lib/score";
 import type { AuditResponse, AuditSummary } from "@/lib/types";
@@ -25,7 +28,7 @@ function descTone(len: number): "ok" | "warn" | "bad" {
   return "warn";
 }
 
-type Section = "audit" | "serp";
+type Section = "audit" | "bulk" | "serp";
 type ReportTab = "resumen" | "diagnosticos" | "encabezados" | "contenido" | "ia";
 
 const REPORT_TABS: { id: ReportTab; label: string }[] = [
@@ -67,6 +70,20 @@ export default function Home() {
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("audit");
+    if (!id) return;
+    (async () => {
+      try {
+        setCurrent(await fetchAudit(id));
+        setReportTab("resumen");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "No se pudo cargar la auditoría.");
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleAnalyze = async (url: string, includeAi: boolean) => {
     setLoading(true);
@@ -130,7 +147,7 @@ export default function Home() {
       </header>
 
       <nav className="mb-4 flex gap-1 rounded-xl border border-line bg-panel p-1" aria-label="Secciones">
-        {(["audit", "serp"] as Section[]).map((s) => (
+        {(["audit", "bulk", "serp"] as Section[]).map((s) => (
           <button
             key={s}
             onClick={() => setSection(s)}
@@ -139,13 +156,21 @@ export default function Home() {
               section === s ? "bg-zinc-100 text-zinc-900" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
             }`}
           >
-            {s === "audit" ? "Auditoría" : "SERP Visualizer"}
+            {s === "audit" ? "Auditoría" : s === "bulk" ? "Bulk" : "SERP Visualizer"}
           </button>
         ))}
+        <a
+          href="/proyectos"
+          className="flex-1 rounded-lg px-4 py-2 text-center text-sm font-medium text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+        >
+          Proyectos
+        </a>
       </nav>
 
       {section === "serp" ? (
         <SerpVisualizer audit={current} />
+      ) : section === "bulk" ? (
+        <BulkPanel />
       ) : (
         <>
           <div className="card mb-4">
@@ -172,6 +197,11 @@ export default function Home() {
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
                         {current.domain} · {score.critical} críticas · {score.warning} avisos
+                        {current.project_slug && (
+                          <a className="ml-2 text-zinc-300 underline hover:text-white" href={`/proyectos/${current.project_slug}`}>
+                            Ver proyecto →
+                          </a>
+                        )}
                       </p>
                     </div>
                   </div>
@@ -204,6 +234,7 @@ export default function Home() {
 
                     <div className="min-w-0 flex-1">
                       {reportTab === "resumen" && (
+                        <>
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                           <ScoreCard
                             label="Estado HTTP"
@@ -236,6 +267,10 @@ export default function Home() {
                             tone={descTone(current.description_length)}
                           />
                         </div>
+                        <div className="mt-3">
+                          <CwvCard perf={current.perf_summary} />
+                        </div>
+                        </>
                       )}
 
                       {reportTab === "diagnosticos" && <IssuesList issues={current.issues} />}
@@ -245,6 +280,8 @@ export default function Home() {
                       )}
 
                       {reportTab === "contenido" && (
+                        <div className="space-y-4">
+                        <CrawlTechCard tech={current.tech_summary} crawl={current.crawl_summary} />
                         <div className="grid gap-4 md:grid-cols-2">
                           <div className="card text-sm">
                             <h3 className="font-semibold">Imágenes y enlaces</h3>
@@ -278,6 +315,7 @@ export default function Home() {
                               </dl>
                             )}
                           </div>
+                        </div>
                         </div>
                       )}
 
