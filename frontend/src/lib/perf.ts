@@ -67,10 +67,20 @@ export async function fetchPerfSummary(pageUrl: string): Promise<PerfSummary | n
   let res: Response;
   try {
     res = await fetch(endpoint, { signal: AbortSignal.timeout(PSI_TIMEOUT_MS) });
-  } catch {
+  } catch (e) {
+    console.error(`[PSI] red/timeout: ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
-  if (!res.ok) return null;
+  if (!res.ok) {
+    let hint = "";
+    try {
+      hint = (await res.text()).slice(0, 300);
+    } catch {
+      /* noop */
+    }
+    console.error(`[PSI] HTTP ${res.status}: ${hint}`);
+    return null;
+  }
 
   let data: Record<string, unknown>;
   try {

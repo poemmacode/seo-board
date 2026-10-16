@@ -12,6 +12,18 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  try {
+    return await runAudit(req);
+  } catch (e) {
+    console.error("[audit/url]", e);
+    return NextResponse.json(
+      { detail: "Error interno al auditar. Revisa los logs del servidor." },
+      { status: 500 }
+    );
+  }
+}
+
+async function runAudit(req: Request) {
   let body: { url?: string; include_ai?: boolean };
   try {
     body = (await req.json()) as { url?: string; include_ai?: boolean };
@@ -38,8 +50,8 @@ export async function POST(req: Request) {
 
   const isNoindex = (data.robots_meta ?? "").toLowerCase().includes("noindex");
 
-  // 2. CWV (PageSpeed) + crawleabilidad en paralelo. Nunca bloquean la auditoría.
-  const [perf, crawl] = await Promise.all([
+  // 2. CWV (PageSpeed) + crawleabilidad + IA en paralelo. Nada de esto bloquea la auditoría.
+  const [perf, crawl, aiAnalysis] = await Promise.all([
     fetchPerfSummary(data.url),
     analyzeCrawlability({
       pageUrl: data.url,
@@ -48,6 +60,16 @@ export async function POST(req: Request) {
       schemaTypes: data.structured_data.detected_types,
       wordCount: data.content_stats.word_count,
     }),
+    includeAi
+      ? analyzeAudit({
+          url: data.url,
+          title: data.title,
+          description: data.description,
+          headings: data.headings,
+          contentSnippet: data.content_stats.text_snippet,
+          wordCount: data.content_stats.word_count,
+        }).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const issues = [...data.issues, ...perfIssues(perf), ...crawl.issues];
@@ -55,24 +77,7 @@ export async function POST(req: Request) {
   const warning = issues.filter((i) => i.severity === "warning").length;
   const score = calculateScoreFromCounts(critical, warning).score;
 
-  // 3. Capa IA opcional (nunca bloquea la auditoría si falla)
-  let aiAnalysis: AuditRow["ai_analysis"] = null;
-  if (includeAi) {
-    try {
-      aiAnalysis = await analyzeAudit({
-        url: data.url,
-        title: data.title,
-        description: data.description,
-        headings: data.headings,
-        contentSnippet: data.content_stats.text_snippet,
-        wordCount: data.content_stats.word_count,
-      });
-    } catch {
-      aiAnalysis = null;
-    }
-  }
-
-  // 4. Proyecto por dominio + persistencia en Supabase
+  // 3. Proyecto por dominio + persistencia en Supabase
   const supabase = getSupabase();
   const project = await upsertProject(supabase, data.url);
 

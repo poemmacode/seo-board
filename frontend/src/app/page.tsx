@@ -12,6 +12,7 @@ import AIRecommendations from "@/components/AIRecommendations";
 import HistorySidebar from "@/components/HistorySidebar";
 import SerpVisualizer from "@/components/SerpVisualizer";
 import BulkPanel from "@/components/BulkPanel";
+import ProjectsPanel from "@/components/ProjectsPanel";
 import { auditUrl, fetchAudit, fetchHistory, rerunAi, deleteAudit } from "@/lib/api";
 import { calculateScoreFromIssues } from "@/lib/score";
 import type { AuditResponse, AuditSummary } from "@/lib/types";
@@ -28,7 +29,7 @@ function descTone(len: number): "ok" | "warn" | "bad" {
   return "warn";
 }
 
-type Section = "audit" | "bulk" | "serp";
+type Section = "audit" | "bulk" | "proyectos" | "serp";
 type ReportTab = "resumen" | "diagnosticos" | "encabezados" | "contenido" | "ia";
 
 const REPORT_TABS: { id: ReportTab; label: string }[] = [
@@ -146,31 +147,27 @@ export default function Home() {
         </p>
       </header>
 
-      <nav className="mb-4 flex gap-1 rounded-xl border border-line bg-panel p-1" aria-label="Secciones">
-        {(["audit", "bulk", "serp"] as Section[]).map((s) => (
+      <nav className="mb-4 flex gap-1 overflow-x-auto rounded-xl border border-line bg-panel p-1" aria-label="Secciones">
+        {(["audit", "bulk", "proyectos", "serp"] as Section[]).map((s) => (
           <button
             key={s}
             onClick={() => setSection(s)}
             aria-current={section === s ? "page" : undefined}
-            className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            className={`flex-1 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
               section === s ? "bg-zinc-100 text-zinc-900" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
             }`}
           >
-            {s === "audit" ? "Auditoría" : s === "bulk" ? "Bulk" : "SERP Visualizer"}
+            {s === "audit" ? "Auditoría" : s === "bulk" ? "Bulk" : s === "proyectos" ? "Proyectos" : "SERP Visualizer"}
           </button>
         ))}
-        <a
-          href="/proyectos"
-          className="flex-1 rounded-lg px-4 py-2 text-center text-sm font-medium text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-        >
-          Proyectos
-        </a>
       </nav>
 
       {section === "serp" ? (
         <SerpVisualizer audit={current} />
       ) : section === "bulk" ? (
         <BulkPanel />
+      ) : section === "proyectos" ? (
+        <ProjectsPanel />
       ) : (
         <>
           <div className="card mb-4">
@@ -197,12 +194,21 @@ export default function Home() {
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
                         {current.domain} · {score.critical} críticas · {score.warning} avisos
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          className="btn-ghost"
+                          onClick={() => handleAnalyze(current.url, true)}
+                          disabled={loading}
+                        >
+                          {loading ? "Analizando…" : "↻ Re-auditar"}
+                        </button>
                         {current.project_slug && (
-                          <a className="ml-2 text-zinc-300 underline hover:text-white" href={`/proyectos/${current.project_slug}`}>
+                          <a className="btn-ghost" href={`/proyectos/${current.project_slug}`}>
                             Ver proyecto →
                           </a>
                         )}
-                      </p>
+                      </div>
                     </div>
                   </div>
 

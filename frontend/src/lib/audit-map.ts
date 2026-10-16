@@ -1,6 +1,51 @@
 import type { AuditRow } from "./supabase";
-import type { AuditResponse, AuditSummary } from "./types";
+import type { AuditResponse, AuditSummary, CrawlSummary, TechSummary } from "./types";
 import { calculateScoreFromCounts } from "./score";
+
+/** Las filas antiguas pueden traer '{}' en los resúmenes: fusionar con defaults. */
+function normalizeTech(t: AuditRow["tech_summary"] | null | undefined): TechSummary {
+  return {
+    is_https: !!t?.is_https,
+    redirected_to_https: !!t?.redirected_to_https,
+    analytics: Array.isArray(t?.analytics) ? (t?.analytics as TechSummary["analytics"]) : [],
+    schema_types: Array.isArray(t?.schema_types) ? (t?.schema_types as string[]) : [],
+    hreflang: Array.isArray(t?.hreflang) ? (t?.hreflang as TechSummary["hreflang"]) : [],
+  };
+}
+
+const EMPTY_CRAWL: CrawlSummary = {
+  robots: { found: false, allows_page: null, blocks_ai_bots: [], ai_bots_allowed: [], sitemaps_declared: [] },
+  sitemap: { checked: false, sitemap_url: null, url_included: null, urls_count: null },
+  indexability: { verdict: "indexable", reasons: [] },
+  ai_readiness: { ready: false, notes: [] },
+};
+
+function normalizeCrawl(c: AuditRow["crawl_summary"] | null | undefined): CrawlSummary {
+  if (!c || typeof c !== "object") return EMPTY_CRAWL;
+  return {
+    robots: {
+      found: !!c.robots?.found,
+      allows_page: c.robots?.allows_page ?? null,
+      blocks_ai_bots: Array.isArray(c.robots?.blocks_ai_bots) ? c.robots.blocks_ai_bots : [],
+      ai_bots_allowed: Array.isArray(c.robots?.ai_bots_allowed) ? c.robots.ai_bots_allowed : [],
+      sitemaps_declared: Array.isArray(c.robots?.sitemaps_declared) ? c.robots.sitemaps_declared : [],
+    },
+    sitemap: {
+      checked: !!c.sitemap?.checked,
+      sitemap_url: c.sitemap?.sitemap_url ?? null,
+      url_included: c.sitemap?.url_included ?? null,
+      urls_count: c.sitemap?.urls_count ?? null,
+    },
+    indexability: {
+      verdict: c.indexability?.verdict === "blocked" ? "blocked" : "indexable",
+      reasons: Array.isArray(c.indexability?.reasons) ? c.indexability.reasons : [],
+    },
+    ai_readiness: {
+      ready: !!c.ai_readiness?.ready,
+      notes: Array.isArray(c.ai_readiness?.notes) ? c.ai_readiness.notes : [],
+    },
+  };
+}
 
 export function rowToResponse(row: AuditRow): AuditResponse {
   return {
@@ -27,19 +72,8 @@ export function rowToResponse(row: AuditRow): AuditResponse {
     content_stats: row.content_stats,
     issues: row.issues ?? [],
     ai_analysis: row.ai_analysis,
-    tech_summary: row.tech_summary ?? {
-      is_https: false,
-      redirected_to_https: false,
-      analytics: [],
-      schema_types: [],
-      hreflang: [],
-    },
-    crawl_summary: row.crawl_summary ?? {
-      robots: { found: false, allows_page: null, blocks_ai_bots: [], ai_bots_allowed: [], sitemaps_declared: [] },
-      sitemap: { checked: false, sitemap_url: null, url_included: null, urls_count: null },
-      indexability: { verdict: "indexable", reasons: [] },
-      ai_readiness: { ready: false, notes: [] },
-    },
+    tech_summary: normalizeTech(row.tech_summary),
+    crawl_summary: normalizeCrawl(row.crawl_summary),
     perf_summary: row.perf_summary ?? null,
     project_id: row.project_id ?? null,
     project_slug: null,
