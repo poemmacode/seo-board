@@ -63,8 +63,8 @@ export default function Home() {
   const loadHistory = useCallback(async () => {
     try {
       setHistory(await fetchHistory(10));
-    } catch {
-      /* backend aún no disponible: se ignora silenciosamente */
+    } catch (e) {
+      console.error("[history]", e instanceof Error ? e.message : e);
     }
   }, []);
 
@@ -138,13 +138,23 @@ export default function Home() {
 
   return (
     <main className="mx-auto max-w-7xl p-4 sm:p-6">
-      <header className="mb-4">
-        <h1 className="text-xl font-bold tracking-tight">
-          SEOBoard <span className="text-zinc-500 font-normal">— Auditoría On-Page</span>
+      <header className="mb-6 text-center">
+        <div className="mb-2 flex items-center justify-center gap-1.5" aria-hidden="true">
+          {["SEO", "GEO", "AEO"].map((t) => (
+            <span
+              key={t}
+              className="rounded-full border border-emerald-800 bg-emerald-950 px-2.5 py-0.5 text-[11px] font-semibold tracking-widest text-emerald-300"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+        <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
+          <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-sky-300 bg-clip-text text-transparent">
+            SEOBoard
+          </span>{" "}
+          <span className="text-zinc-100">— Auditoría Técnica SEO/GEO/AEO On-Page</span>
         </h1>
-        <p className="text-xs text-zinc-500">
-          Suite interna · Módulo 1 · Keywords / SERP / Competidores en roadmap
-        </p>
       </header>
 
       <nav className="mb-4 flex gap-1 overflow-x-auto rounded-xl border border-line bg-panel p-1" aria-label="Secciones">

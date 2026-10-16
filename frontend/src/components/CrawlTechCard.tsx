@@ -36,6 +36,9 @@ export default function CrawlTechCard({ tech, crawl }: Props) {
           no="fuera de sitemap"
         />
         <Badge ok={crawl.ai_readiness.ready} yes="AI-ready" no="no AI-ready" />
+        <span title="Indicios on-page (mapa, teléfono, dirección, schema). La confirmación exacta de la ficha requiere Places API.">
+          <Badge ok={tech.local.has_local_presence} yes="Presencia local: Sí" no="Presencia local: No" />
+        </span>
       </div>
 
       {crawl.indexability.reasons.length > 0 && (

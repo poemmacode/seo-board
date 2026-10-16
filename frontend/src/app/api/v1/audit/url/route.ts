@@ -92,6 +92,10 @@ async function runAudit(req: Request) {
     analytics: data.analytics_summary.detected,
     schema_types: data.structured_data.detected_types,
     hreflang: data.hreflang,
+    local: {
+      has_local_presence: data.local_presence.has_local_presence,
+      signals: data.local_presence.signals,
+    },
   };
 
   const { data: row, error } = await supabase

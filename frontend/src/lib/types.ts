@@ -74,6 +74,7 @@ export interface TechSummary {
   analytics: AnalyticsHit[];
   schema_types: string[];
   hreflang: HreflangItem[];
+  local: { has_local_presence: boolean; signals: string[] };
 }
 
 export interface PerfLabMetric {

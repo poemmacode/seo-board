@@ -73,6 +73,7 @@ export interface AuditRow {
     analytics: Array<{ provider: string; evidence: string }>;
     schema_types: string[];
     hreflang: Array<{ lang: string; href: string }>;
+    local?: { has_local_presence: boolean; signals: string[] };
   };
   ai_analysis: {
     search_intent: string;

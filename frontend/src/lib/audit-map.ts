@@ -10,6 +10,10 @@ function normalizeTech(t: AuditRow["tech_summary"] | null | undefined): TechSumm
     analytics: Array.isArray(t?.analytics) ? (t?.analytics as TechSummary["analytics"]) : [],
     schema_types: Array.isArray(t?.schema_types) ? (t?.schema_types as string[]) : [],
     hreflang: Array.isArray(t?.hreflang) ? (t?.hreflang as TechSummary["hreflang"]) : [],
+    local: {
+      has_local_presence: !!t?.local?.has_local_presence,
+      signals: Array.isArray(t?.local?.signals) ? (t?.local?.signals as string[]) : [],
+    },
   };
 }
 

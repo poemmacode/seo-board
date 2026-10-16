@@ -17,6 +17,7 @@ const BUCKETS: { title: string; categories: string[] }[] = [
   { title: "Performance y Core Web Vitals", categories: ["Performance"] },
   { title: "Enlaces e Imágenes", categories: ["Images"] },
   { title: "Datos estructurados y AI-ready", categories: ["Schemas", "AI-Ready"] },
+  { title: "SEO local y GBP", categories: ["Local"] },
 ];
 
 function groupIssues(issues: AuditIssue[]): { bucket: string; items: AuditIssue[] }[] {

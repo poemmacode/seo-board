@@ -51,6 +51,7 @@ export interface ExtractedAudit {
   links_summary: LinksSummary;
   structured_data: StructuredDataSummary;
   analytics_summary: { detected: { provider: string; evidence: string }[] };
+  local_presence: { has_local_presence: boolean; signals: string[] };
   hreflang: { lang: string; href: string }[];
   content_stats: ContentStats;
   issues: AuditIssue[];
@@ -277,8 +278,9 @@ export function parseHtml(input: ParseInput): ExtractedAudit {
   // 6. Contenido y palabras
   const content_stats = extractContentStats(html);
 
-  // 6b. Analítica y hreflang
+  // 6b. Analítica, presencia local y hreflang
   const analytics_summary = { detected: detectAnalytics($) };
+  const local_presence = detectLocalPresence($, structured_data.detected_types);
   const hreflang: ExtractedAudit["hreflang"] = [];
   $('link[rel="alternate"][hreflang]').each((_, el) => {
     const lang = ($(el).attr("hreflang") ?? "").trim();
@@ -304,6 +306,8 @@ export function parseHtml(input: ParseInput): ExtractedAudit {
     content_stats,
     analytics: analytics_summary.detected,
     schema_types: structured_data.detected_types,
+    local_presence: local_presence.has_local_presence,
+    local_signals: local_presence.signals,
     hreflang,
   });
 
@@ -328,6 +332,7 @@ export function parseHtml(input: ParseInput): ExtractedAudit {
     links_summary,
     structured_data,
     analytics_summary,
+    local_presence,
     hreflang,
     content_stats,
     issues,
@@ -397,6 +402,54 @@ function detectAnalytics($: ReturnType<typeof load>): { provider: string; eviden
   return found;
 }
 
+/**
+ * Indicios de presencia local (posible ficha Google Business Profile).
+ * Heurística on-page gratuita: NO confirma la ficha; la verificación exacta
+ * requiere Places API. 1 señal fuerte o 2 débiles = presencia probable.
+ */
+function detectLocalPresence(
+  $: ReturnType<typeof load>,
+  schemaTypes: string[]
+): { has_local_presence: boolean; signals: string[] } {
+  const strong: string[] = [];
+  const weak: string[] = [];
+
+  const localSchema = schemaTypes.filter((t) =>
+    /localbusiness|store|restaurant|hotel|dentist|plumber|electrician|organization/i.test(t)
+  );
+  const hasAddressInSchema = localSchema.length > 0;
+  if (hasAddressInSchema) strong.push(`Schema ${localSchema.slice(0, 3).join(", ")}`);
+
+  let mapsHit = false;
+  $("iframe[src], a[href]").each((_, el) => {
+    const href = ($(el).attr("src") ?? $(el).attr("href") ?? "").toLowerCase();
+    if (/google\.com\/maps|maps\.google\.|goo\.gl\/maps|\/maps\/embed/.test(href)) mapsHit = true;
+  });
+  if (mapsHit) strong.push("Mapa de Google embebido/enlazado");
+
+  let hasTel = false;
+  $("a[href^='tel:']").each(() => {
+    hasTel = true;
+  });
+  if (hasTel) weak.push("Teléfono de contacto");
+
+  let hasGeoMeta = false;
+  $("meta").each((_, el) => {
+    const name = ($(el).attr("name") ?? $(el).attr("property") ?? "").toLowerCase();
+    if (/^(geo\.|icbm$)/.test(name)) hasGeoMeta = true;
+  });
+  if (hasGeoMeta) weak.push("Metas geo/ICBM");
+
+  let hasPostal = false;
+  $("[itemtype]").each((_, el) => {
+    if (($(el).attr("itemtype") ?? "").toLowerCase().includes("postaladdress")) hasPostal = true;
+  });
+  if (hasPostal) weak.push("Dirección postal (microdata)");
+
+  const signals = [...strong, ...weak];
+  return { has_local_presence: strong.length >= 1 || weak.length >= 2, signals };
+}
+
 function extractContentStats(html: string): ContentStats {
   const $t = load(html);
   $t("script, style, nav, noscript, svg, header, footer").remove();
@@ -433,6 +486,8 @@ interface IssueInput {
   content_stats: ContentStats;
   analytics: { provider: string; evidence: string }[];
   schema_types: string[];
+  local_presence: boolean;
+  local_signals: string[];
   hreflang: { lang: string; href: string }[];
 }
 
@@ -455,6 +510,8 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     content_stats,
     analytics,
     schema_types,
+    local_presence,
+    local_signals,
     hreflang,
   } = input;
 
@@ -720,6 +777,23 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
       severity: "ok",
       title: `${hreflang.length} etiqueta(s) hreflang`,
       message: `Idiomas/regiones: ${hreflang.map((h) => h.lang).slice(0, 6).join(", ")}.`,
+    });
+  }
+
+  // Presencia local (indicios de ficha Google Business Profile)
+  if (local_presence) {
+    issues.push({
+      category: "Local",
+      severity: "ok",
+      title: "Presencia local detectada (posible ficha GBP)",
+      message: `Indicios: ${local_signals.slice(0, 4).join(" · ")}. La confirmación exacta de la ficha requiere verificación con Places API.`,
+    });
+  } else {
+    issues.push({
+      category: "Local",
+      severity: "warning",
+      title: "Sin señales de presencia local",
+      message: "No hay teléfono, dirección, mapa ni schema LocalBusiness. Si el negocio atiende una zona, añade NAP + mapa + schema y verifica la ficha de Google Business Profile.",
     });
   }
 
