@@ -1,6 +1,8 @@
 "use client";
 
 import type { AuditSummary } from "@/lib/types";
+import { calculateScoreFromCounts } from "@/lib/score";
+import ScoreRing from "./ScoreRing";
 
 interface Props {
   items: AuditSummary[];
@@ -24,19 +26,27 @@ export default function HistorySidebar({ items, activeId, onSelect, onDelete }: 
               activeId === h.id ? "border-zinc-400 bg-zinc-800" : "border-line/70"
             }`}
           >
-            <button className="w-full text-left" onClick={() => onSelect(h.id)}>
-              <p className="truncate font-medium text-zinc-100" title={h.url}>
-                {h.domain}
-              </p>
-              <p className="truncate text-zinc-500" title={h.url}>
-                {h.url}
-              </p>
-              <p className="mt-1 text-zinc-400">
-                {h.status_code} · {Math.round(h.response_time_ms)}ms · {h.word_count} palabras
-                {h.issues_critical_count > 0 && (
-                  <span className="text-red-300"> · {h.issues_critical_count} críticas</span>
-                )}
-              </p>
+            <button className="flex w-full items-center gap-2 text-left" onClick={() => onSelect(h.id)}>
+              <ScoreRing
+                score={
+                  h.score ?? calculateScoreFromCounts(h.issues_critical_count, h.issues_warning_count).score
+                }
+                size={36}
+              />
+              <span className="min-w-0 flex-1">
+                <p className="truncate font-medium text-zinc-100" title={h.url}>
+                  {h.domain}
+                </p>
+                <p className="truncate text-zinc-500" title={h.url}>
+                  {h.url}
+                </p>
+                <p className="mt-1 text-zinc-400">
+                  {h.status_code} · {Math.round(h.response_time_ms)}ms · {h.word_count} palabras
+                  {h.issues_critical_count > 0 && (
+                    <span className="text-red-300"> · {h.issues_critical_count} críticas</span>
+                  )}
+                </p>
+              </span>
             </button>
             <button
               className="mt-1 text-zinc-600 hover:text-red-300"

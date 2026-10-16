@@ -93,6 +93,7 @@ export interface AuditSummary {
   response_time_ms: number;
   title?: string | null;
   word_count: number;
+  score: number;
   issues_critical_count: number;
   issues_warning_count: number;
   has_ai_analysis: boolean;

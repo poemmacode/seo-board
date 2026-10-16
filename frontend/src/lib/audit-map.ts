@@ -1,5 +1,6 @@
 import type { AuditRow } from "./supabase";
 import type { AuditResponse, AuditSummary } from "./types";
+import { calculateScoreFromCounts } from "./score";
 
 export function rowToResponse(row: AuditRow): AuditResponse {
   return {
@@ -32,6 +33,8 @@ export function rowToResponse(row: AuditRow): AuditResponse {
 
 export function rowToSummary(row: AuditRow): AuditSummary {
   const issues = row.issues ?? [];
+  const critical = issues.filter((i) => i.severity === "critical").length;
+  const warning = issues.filter((i) => i.severity === "warning").length;
   return {
     id: row.id,
     url: row.url,
@@ -40,8 +43,9 @@ export function rowToSummary(row: AuditRow): AuditSummary {
     response_time_ms: row.response_time_ms,
     title: row.title,
     word_count: row.content_stats?.word_count ?? 0,
-    issues_critical_count: issues.filter((i) => i.severity === "critical").length,
-    issues_warning_count: issues.filter((i) => i.severity === "warning").length,
+    score: calculateScoreFromCounts(critical, warning).score,
+    issues_critical_count: critical,
+    issues_warning_count: warning,
     has_ai_analysis: Boolean(row.ai_analysis),
     created_at: row.created_at,
   };
