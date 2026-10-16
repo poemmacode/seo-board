@@ -1,6 +1,8 @@
 import type { AuditResponse, AuditSummary } from "./types";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Same-origin por defecto (deploy único en Vercel). Si se define
+// NEXT_PUBLIC_API_URL, las llamadas van contra ese backend externo.
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
