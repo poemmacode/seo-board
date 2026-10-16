@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { scoreTone, type ScoreTone } from "@/lib/score";
 
 const stroke: Record<ScoreTone, string> = {
@@ -21,6 +22,7 @@ interface Props {
 
 /** Círculo de score SEO 1–100 con semáforo verde/amarillo/rojo. */
 export default function ScoreRing({ score, size = 120 }: Props) {
+  const t = useTranslations("score");
   const tone = scoreTone(score);
   const sw = Math.max(6, Math.round(size / 12));
   const r = (size - sw) / 2;
@@ -32,7 +34,7 @@ export default function ScoreRing({ score, size = 120 }: Props) {
       className="relative inline-flex shrink-0 items-center justify-center"
       style={{ width: size, height: size }}
       role="img"
-      aria-label={`Score SEO ${score} de 100`}
+      aria-label={t("a11y", { score })}
     >
       <svg width={size} height={size} className="-rotate-90">
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#232838" strokeWidth={sw} />

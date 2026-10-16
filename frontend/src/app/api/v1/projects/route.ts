@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
+import { localeFromRequest } from "@/lib/locale";
+import { srv, fill } from "@/lib/srv";
 import type { Project } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const A = srv(localeFromRequest(req)).api;
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from("projects")
@@ -14,7 +17,7 @@ export async function GET() {
 
   if (error) {
     console.error(`[projects/list] ${error.code ?? ""} ${error.message}`.trim());
-    return NextResponse.json({ detail: `No se pudieron leer los proyectos: ${error.message}` }, { status: 500 });
+    return NextResponse.json({ detail: fill(A.projectsFail, { err: error.message }) }, { status: 500 });
   }
   return NextResponse.json((data ?? []) as Project[]);
 }

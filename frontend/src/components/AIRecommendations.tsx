@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import type { AIAnalysisResult } from "@/lib/types";
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export default function AIRecommendations({ data, regenerating, onRegenerate }: Props) {
+  const t = useTranslations("ai");
   const [copied, setCopied] = useState<string | null>(null);
 
   const copy = async (text: string) => {
@@ -25,15 +27,15 @@ export default function AIRecommendations({ data, regenerating, onRegenerate }: 
   return (
     <div className="card">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Recomendaciones IA</h3>
+        <h3 className="text-sm font-semibold">{t("title")}</h3>
         <button onClick={onRegenerate} disabled={regenerating} className="btn-ghost">
-          {regenerating ? "Regenerando…" : "Regenerar"}
+          {regenerating ? t("regenerating") : t("regenerate")}
         </button>
       </div>
 
       {!data && (
         <p className="mt-2 text-sm text-zinc-500">
-          Sin análisis IA para esta auditoría. Pulsa Regenerar para generarlo.
+          {t("empty")}
         </p>
       )}
 
@@ -41,19 +43,19 @@ export default function AIRecommendations({ data, regenerating, onRegenerate }: 
         <div className="mt-3 space-y-4 text-sm">
           <div>
             <p className="text-xs uppercase tracking-wider text-zinc-500">
-              Intención: <span className="text-zinc-200">{data.search_intent}</span>
+              {t("intent")} <span className="text-zinc-200">{data.search_intent}</span>
             </p>
             <p className="mt-1 text-zinc-300">{data.intent_explanation}</p>
           </div>
 
           <div>
-            <p className="font-medium text-zinc-100">Títulos sugeridos</p>
+            <p className="font-medium text-zinc-100">{t("suggestedTitles")}</p>
             <ul className="mt-1 space-y-1.5">
-              {data.title_suggestions.map((t, i) => (
+              {data.title_suggestions.map((s, i) => (
                 <li key={i} className="flex items-start gap-2 rounded border border-line/60 p-2">
-                  <span className="flex-1 text-zinc-200">{t}</span>
-                  <button className="btn-ghost" onClick={() => copy(t)}>
-                    {copied && t.startsWith(copied) ? "Copiado" : "Copiar"}
+                  <span className="flex-1 text-zinc-200">{s}</span>
+                  <button className="btn-ghost" onClick={() => copy(s)}>
+                    {copied && s.startsWith(copied) ? t("copied") : t("copy")}
                   </button>
                 </li>
               ))}
@@ -61,13 +63,13 @@ export default function AIRecommendations({ data, regenerating, onRegenerate }: 
           </div>
 
           <div>
-            <p className="font-medium text-zinc-100">Meta descripciones sugeridas</p>
+            <p className="font-medium text-zinc-100">{t("suggestedDescs")}</p>
             <ul className="mt-1 space-y-1.5">
               {data.description_suggestions.map((d, i) => (
                 <li key={i} className="flex items-start gap-2 rounded border border-line/60 p-2">
                   <span className="flex-1 text-zinc-200">{d}</span>
                   <button className="btn-ghost" onClick={() => copy(d)}>
-                    {copied && d.startsWith(copied) ? "Copiado" : "Copiar"}
+                    {copied && d.startsWith(copied) ? t("copied") : t("copy")}
                   </button>
                 </li>
               ))}
@@ -75,7 +77,7 @@ export default function AIRecommendations({ data, regenerating, onRegenerate }: 
           </div>
 
           <div>
-            <p className="font-medium text-zinc-100">AEO / GEO (3 acciones)</p>
+            <p className="font-medium text-zinc-100">{t("geo")}</p>
             <ol className="mt-1 list-decimal space-y-1 pl-5 text-zinc-300">
               {data.geo_aeo_recommendations.map((r, i) => (
                 <li key={i}>{r}</li>

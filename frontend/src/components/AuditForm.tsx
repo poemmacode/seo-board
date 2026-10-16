@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 
 interface Props {
   loading: boolean;
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export default function AuditForm({ loading, onSubmit }: Props) {
+  const t = useTranslations("auditForm");
   const [url, setUrl] = useState("");
   const [includeAi, setIncludeAi] = useState(true);
 
@@ -21,7 +23,7 @@ export default function AuditForm({ loading, onSubmit }: Props) {
     >
       <input
         className="input-dark flex-1"
-        placeholder="https://ejemplo.com/pagina-a-auditar"
+        placeholder={t("placeholder")}
         value={url}
         onChange={(e) => setUrl(e.target.value)}
         inputMode="url"
@@ -34,10 +36,10 @@ export default function AuditForm({ loading, onSubmit }: Props) {
           onChange={(e) => setIncludeAi(e.target.checked)}
           className="accent-zinc-100"
         />
-        Incluir IA
+        {t("includeAi")}
       </label>
       <button type="submit" disabled={loading || !url.trim()} className="btn-primary">
-        {loading ? "Analizando…" : "Analizar"}
+        {loading ? t("analyzing") : t("analyze")}
       </button>
     </form>
   );

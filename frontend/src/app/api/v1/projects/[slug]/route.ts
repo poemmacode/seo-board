@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSupabase, type AuditRow } from "@/lib/supabase";
 import { rowToSummary } from "@/lib/audit-map";
+import { localeFromRequest } from "@/lib/locale";
+import { srv, fill } from "@/lib/srv";
 import type { Project } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +11,8 @@ interface Params {
   params: { slug: string };
 }
 
-export async function GET(_req: Request, { params }: Params) {
+export async function GET(req: Request, { params }: Params) {
+  const A = srv(localeFromRequest(req)).api;
   const supabase = getSupabase();
   const { data: project, error } = await supabase
     .from("projects")
@@ -18,7 +21,7 @@ export async function GET(_req: Request, { params }: Params) {
     .single();
 
   if (error || !project) {
-    return NextResponse.json({ detail: "Proyecto no encontrado." }, { status: 404 });
+    return NextResponse.json({ detail: A.projectNotFound }, { status: 404 });
   }
 
   const { data: audits, error: auditsError } = await supabase
@@ -29,7 +32,7 @@ export async function GET(_req: Request, { params }: Params) {
     .limit(50);
 
   if (auditsError) {
-    return NextResponse.json({ detail: `No se pudo leer el historial: ${auditsError.message}` }, { status: 500 });
+    return NextResponse.json({ detail: fill(A.projectsHistoryFail, { err: auditsError.message }) }, { status: 500 });
   }
 
   return NextResponse.json({

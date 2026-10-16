@@ -1,4 +1,5 @@
 import type { AuditResponse, AuditSummary } from "./types";
+import type { Locale } from "./locale";
 
 // Same-origin por defecto (deploy único en Vercel). Si se define
 // NEXT_PUBLIC_API_URL, las llamadas van contra ese backend externo.
@@ -22,11 +23,11 @@ async function handle<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function auditUrl(url: string, include_ai = true): Promise<AuditResponse> {
+export async function auditUrl(url: string, include_ai = true, locale: Locale = "en"): Promise<AuditResponse> {
   const res = await fetch(`${BASE}/api/v1/audit/url`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, include_ai }),
+    body: JSON.stringify({ url, include_ai, locale }),
   });
   return handle<AuditResponse>(res);
 }
@@ -43,8 +44,12 @@ export async function fetchAudit(id: string): Promise<AuditResponse> {
   return handle<AuditResponse>(res);
 }
 
-export async function rerunAi(id: string): Promise<AuditResponse> {
-  const res = await fetch(`${BASE}/api/v1/audit/${id}/ai-rerun`, { method: "POST" });
+export async function rerunAi(id: string, locale: Locale = "en"): Promise<AuditResponse> {
+  const res = await fetch(`${BASE}/api/v1/audit/${id}/ai-rerun`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ locale }),
+  });
   return handle<AuditResponse>(res);
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import AuditForm from "@/components/AuditForm";
 import ScoreCard from "@/components/ScoreCard";
 import ScoreRing from "@/components/ScoreRing";
@@ -13,8 +14,11 @@ import HistorySidebar from "@/components/HistorySidebar";
 import SerpVisualizer from "@/components/SerpVisualizer";
 import BulkPanel from "@/components/BulkPanel";
 import ProjectsPanel from "@/components/ProjectsPanel";
+import LocaleSwitcher from "@/components/LocaleSwitcher";
+import { Link } from "@/i18n/navigation";
 import { auditUrl, fetchAudit, fetchHistory, rerunAi, deleteAudit } from "@/lib/api";
 import { calculateScoreFromIssues } from "@/lib/score";
+import { resolveLocale } from "@/lib/locale";
 import type { AuditResponse, AuditSummary } from "@/lib/types";
 
 function titleTone(len: number): "ok" | "warn" | "bad" {
@@ -32,13 +36,15 @@ function descTone(len: number): "ok" | "warn" | "bad" {
 type Section = "audit" | "bulk" | "proyectos" | "serp";
 type ReportTab = "resumen" | "diagnosticos" | "encabezados" | "contenido" | "ia";
 
-const REPORT_TABS: { id: ReportTab; label: string }[] = [
-  { id: "resumen", label: "Resumen" },
-  { id: "diagnosticos", label: "Diagnósticos" },
-  { id: "encabezados", label: "Encabezados" },
-  { id: "contenido", label: "Contenido" },
-  { id: "ia", label: "IA" },
-];
+const REPORT_TAB_IDS: ReportTab[] = ["resumen", "diagnosticos", "encabezados", "contenido", "ia"];
+const SECTION_IDS: Section[] = ["audit", "bulk", "proyectos", "serp"];
+
+const sectionLabel: Record<Section, "audit" | "bulk" | "projects" | "serp"> = {
+  audit: "audit",
+  bulk: "bulk",
+  proyectos: "projects",
+  serp: "serp",
+};
 
 const scoreChip: Record<string, string> = {
   ok: "bg-emerald-950 text-emerald-300 border border-emerald-800",
@@ -47,6 +53,11 @@ const scoreChip: Record<string, string> = {
 };
 
 export default function Home() {
+  const tHero = useTranslations("hero");
+  const tNav = useTranslations("nav");
+  const tReport = useTranslations("report");
+  const tContent = useTranslations("content");
+  const locale = resolveLocale(useLocale());
   const [loading, setLoading] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,8 +67,8 @@ export default function Home() {
   const [reportTab, setReportTab] = useState<ReportTab>("resumen");
 
   const score = useMemo(
-    () => (current ? calculateScoreFromIssues(current.issues) : null),
-    [current]
+    () => (current ? calculateScoreFromIssues(current.issues, locale) : null),
+    [current, locale]
   );
 
   const loadHistory = useCallback(async () => {
@@ -80,7 +91,7 @@ export default function Home() {
         setCurrent(await fetchAudit(id));
         setReportTab("resumen");
       } catch (e) {
-        setError(e instanceof Error ? e.message : "No se pudo cargar la auditoría.");
+        setError(e instanceof Error ? e.message : tReport("errors.load"));
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -90,12 +101,12 @@ export default function Home() {
     setLoading(true);
     setError(null);
     try {
-      const data = await auditUrl(url, includeAi);
+      const data = await auditUrl(url, includeAi, locale);
       setCurrent(data);
       setReportTab("resumen");
       await loadHistory();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error desconocido al auditar.");
+      setError(e instanceof Error ? e.message : tReport("errors.analyze"));
     } finally {
       setLoading(false);
     }
@@ -107,7 +118,7 @@ export default function Home() {
       setCurrent(await fetchAudit(id));
       setReportTab("resumen");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo cargar la auditoría.");
+      setError(e instanceof Error ? e.message : tReport("errors.load"));
     }
   };
 
@@ -116,28 +127,27 @@ export default function Home() {
     setRegenerating(true);
     setError(null);
     try {
-      const data = await rerunAi(current.id);
+      const data = await rerunAi(current.id, locale);
       setCurrent(data);
       await loadHistory();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo regenerar el análisis IA.");
+      setError(e instanceof Error ? e.message : tReport("errors.rerun"));
     } finally {
       setRegenerating(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    try {
-      await deleteAudit(id);
-      if (current?.id === id) setCurrent(null);
-      await loadHistory();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo eliminar.");
-    }
+    await deleteAudit(id);
+    if (current?.id === id) setCurrent(null);
+    await loadHistory();
   };
 
   return (
     <main className="mx-auto max-w-7xl p-4 sm:p-6">
+      <div className="mb-2 flex justify-end">
+        <LocaleSwitcher />
+      </div>
       <header className="mb-6 text-center">
         <div className="mb-2 flex items-center justify-center gap-1.5" aria-hidden="true">
           {["SEO", "GEO", "AEO"].map((t) => (
@@ -151,14 +161,14 @@ export default function Home() {
         </div>
         <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
           <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-sky-300 bg-clip-text text-transparent">
-            SEOBoard
+            {tHero("brand")}
           </span>{" "}
-          <span className="text-zinc-100">— Auditoría Técnica SEO/GEO/AEO On-Page</span>
+          <span className="text-zinc-100">{tHero("title")}</span>
         </h1>
       </header>
 
-      <nav className="mb-4 flex gap-1 overflow-x-auto rounded-xl border border-line bg-panel p-1" aria-label="Secciones">
-        {(["audit", "bulk", "proyectos", "serp"] as Section[]).map((s) => (
+      <nav className="mb-4 flex gap-1 overflow-x-auto rounded-xl border border-line bg-panel p-1" aria-label="Sections">
+        {SECTION_IDS.map((s) => (
           <button
             key={s}
             onClick={() => setSection(s)}
@@ -167,7 +177,7 @@ export default function Home() {
               section === s ? "bg-zinc-100 text-zinc-900" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
             }`}
           >
-            {s === "audit" ? "Auditoría" : s === "bulk" ? "Bulk" : s === "proyectos" ? "Proyectos" : "SERP Visualizer"}
+            {tNav(sectionLabel[s])}
           </button>
         ))}
       </nav>
@@ -189,7 +199,7 @@ export default function Home() {
             <section className="min-w-0 space-y-4">
               {!current && (
                 <div className="card text-sm text-zinc-500">
-                  Introduce una URL y pulsa Analizar para ver el informe técnico completo.
+                  {tReport("empty")}
                 </div>
               )}
 
@@ -203,7 +213,7 @@ export default function Home() {
                         {current.url}
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
-                        {current.domain} · {score.critical} críticas · {score.warning} avisos
+                        {tReport("counts", { domain: current.domain, critical: score.critical, warning: score.warning })}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         <button
@@ -211,12 +221,12 @@ export default function Home() {
                           onClick={() => handleAnalyze(current.url, true)}
                           disabled={loading}
                         >
-                          {loading ? "Analizando…" : "↻ Re-auditar"}
+                          {loading ? tReport("reauditing") : tReport("reaudit")}
                         </button>
                         {current.project_slug && (
-                          <a className="btn-ghost" href={`/proyectos/${current.project_slug}`}>
-                            Ver proyecto →
-                          </a>
+                          <Link className="btn-ghost" href={`/proyectos/${current.project_slug}`}>
+                            {tReport("viewProject")}
+                          </Link>
                         )}
                       </div>
                     </div>
@@ -225,21 +235,21 @@ export default function Home() {
                   <div className="flex flex-col gap-3 sm:flex-row">
                     <nav
                       className="flex gap-1 overflow-x-auto rounded-xl border border-line bg-panel p-1 sm:w-40 sm:shrink-0 sm:flex-col"
-                      aria-label="Informe"
+                      aria-label="Report"
                     >
-                      {REPORT_TABS.map((t) => (
+                      {REPORT_TAB_IDS.map((id) => (
                         <button
-                          key={t.id}
-                          onClick={() => setReportTab(t.id)}
-                          aria-current={reportTab === t.id ? "true" : undefined}
+                          key={id}
+                          onClick={() => setReportTab(id)}
+                          aria-current={reportTab === id ? "true" : undefined}
                           className={`flex items-center justify-between gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm transition-colors sm:w-full ${
-                            reportTab === t.id
+                            reportTab === id
                               ? "bg-zinc-100 font-medium text-zinc-900"
                               : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                           }`}
                         >
-                          {t.label}
-                          {t.id === "diagnosticos" && score.critical > 0 && (
+                          {tReport(`tabs.${id}`)}
+                          {id === "diagnosticos" && score.critical > 0 && (
                             <span className="rounded-full bg-red-950 px-2 py-0.5 text-[11px] font-semibold text-red-300">
                               {score.critical}
                             </span>
@@ -253,33 +263,33 @@ export default function Home() {
                         <>
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                           <ScoreCard
-                            label="Estado HTTP"
+                            label={tReport("cards.http")}
                             value={String(current.status_code)}
                             hint={current.domain}
                             tone={current.status_code === 200 ? "ok" : "bad"}
                           />
                           <ScoreCard
-                            label="Tiempo respuesta"
+                            label={tReport("cards.responseTime")}
                             value={`${Math.round(current.response_time_ms)} ms`}
-                            hint={current.is_redirect ? `Redirect → ${current.redirect_url}` : "Sin redirección"}
+                            hint={current.is_redirect ? tReport("cards.redirect", { url: current.redirect_url ?? "" }) : tReport("cards.noRedirect")}
                             tone={current.response_time_ms > 2000 ? "bad" : current.response_time_ms > 800 ? "warn" : "ok"}
                           />
                           <ScoreCard
-                            label="Palabras"
+                            label={tReport("cards.words")}
                             value={String(current.content_stats.word_count)}
-                            hint={`${current.content_stats.reading_time_min} min lectura`}
+                            hint={tReport("cards.minRead", { min: current.content_stats.reading_time_min })}
                             tone={current.content_stats.word_count < 250 ? "warn" : "ok"}
                           />
                           <ScoreCard
-                            label={`Título (${current.title_length})`}
-                            value={current.title ?? "— sin título —"}
-                            hint={current.title_length >= 45 && current.title_length <= 65 ? "Longitud óptima" : "Revisar longitud (45–65)"}
+                            label={tReport("cards.title", { n: current.title_length })}
+                            value={current.title ?? tReport("cards.noTitle")}
+                            hint={current.title_length >= 45 && current.title_length <= 65 ? tReport("cards.optimal") : tReport("cards.reviewTitle")}
                             tone={titleTone(current.title_length)}
                           />
                           <ScoreCard
-                            label={`Descripción (${current.description_length})`}
-                            value={current.description ?? "— sin descripción —"}
-                            hint={current.description_length >= 120 && current.description_length <= 160 ? "Longitud óptima" : "Revisar longitud (120–160)"}
+                            label={tReport("cards.description", { n: current.description_length })}
+                            value={current.description ?? tReport("cards.noDescription")}
+                            hint={current.description_length >= 120 && current.description_length <= 160 ? tReport("cards.optimal") : tReport("cards.reviewDesc")}
                             tone={descTone(current.description_length)}
                           />
                         </div>
@@ -300,26 +310,26 @@ export default function Home() {
                         <CrawlTechCard tech={current.tech_summary} crawl={current.crawl_summary} />
                         <div className="grid gap-4 md:grid-cols-2">
                           <div className="card text-sm">
-                            <h3 className="font-semibold">Imágenes y enlaces</h3>
+                            <h3 className="font-semibold">{tContent("imagesTitle")}</h3>
                             <p className="mt-2 text-zinc-300">
-                              {current.images_summary.total} imágenes · {current.images_summary.missing_alt_count} sin ALT
+                              {tContent("imagesStats", { total: current.images_summary.total, missing: current.images_summary.missing_alt_count })}
                             </p>
                             <p className="text-zinc-300">
-                              {current.links_summary.internal_count} internos · {current.links_summary.external_count} externos
+                              {tContent("linksStats", { internal: current.links_summary.internal_count, external: current.links_summary.external_count })}
                             </p>
                             <p className="mt-2 text-xs text-zinc-500">
-                              Canonical: {current.canonical_url ?? "—"} · Robots: {current.robots_meta ?? "—"}
+                              {tContent("canonical", { v: current.canonical_url ?? "—" })} · {tContent("robots", { v: current.robots_meta ?? "—" })}
                             </p>
                             {current.structured_data.detected_types.length > 0 && (
                               <p className="mt-1 text-xs text-zinc-400">
-                                Schema: {current.structured_data.detected_types.join(", ")}
+                                {tContent("schema", { v: current.structured_data.detected_types.join(", ") })}
                               </p>
                             )}
                           </div>
                           <div className="card text-sm">
-                            <h3 className="font-semibold">OpenGraph</h3>
+                            <h3 className="font-semibold">{tContent("ogTitle")}</h3>
                             {Object.keys(current.open_graph).length === 0 ? (
-                              <p className="mt-2 text-zinc-500">Sin etiquetas og:* detectadas.</p>
+                              <p className="mt-2 text-zinc-500">{tContent("ogEmpty")}</p>
                             ) : (
                               <dl className="mt-2 space-y-1 text-xs">
                                 {Object.entries(current.open_graph).map(([k, v]) => (

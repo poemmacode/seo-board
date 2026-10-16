@@ -1,4 +1,6 @@
 import type { AuditIssue } from "./types";
+import type { Locale } from "./locale";
+import { srv, fill } from "./srv";
 
 /**
  * Crawleabilidad profunda: robots.txt, sitemap.xml, veredicto de
@@ -115,7 +117,11 @@ export interface CrawlInput {
   wordCount: number;
 }
 
-export async function analyzeCrawlability(input: CrawlInput): Promise<{ summary: CrawlSummary; issues: AuditIssue[] }> {
+export async function analyzeCrawlability(
+  input: CrawlInput,
+  locale: Locale = "en"
+): Promise<{ summary: CrawlSummary; issues: AuditIssue[] }> {
+  const S = srv(locale).crawl;
   const { pageUrl, isNoindex, canonicalUrl, schemaTypes, wordCount } = input;
   const origin = new URL(pageUrl).origin;
   const path = new URL(pageUrl).pathname + new URL(pageUrl).search;
@@ -134,8 +140,8 @@ export async function analyzeCrawlability(input: CrawlInput): Promise<{ summary:
     issues.push({
       category: "Indexing",
       severity: "warning",
-      title: "robots.txt no accesible",
-      message: "No se pudo obtener /robots.txt. Verifica que exista y sea alcanzable para los rastreadores.",
+      title: S.robotsUnreachableTitle,
+      message: S.robotsUnreachableMsg,
     });
   } else {
     const groups = parseRobotsGroups(robotsTxt);
@@ -153,15 +159,15 @@ export async function analyzeCrawlability(input: CrawlInput): Promise<{ summary:
       issues.push({
         category: "Indexing",
         severity: "critical",
-        title: "robots.txt bloquea esta URL",
-        message: "Una regla Disallow impide el rastreo de esta página. Ningún motor la podrá indexar.",
+        title: S.robotsBlocksTitle,
+        message: S.robotsBlocksMsg,
       });
     } else {
       issues.push({
         category: "Indexing",
         severity: "ok",
-        title: "robots.txt permite el rastreo",
-        message: "Ninguna regla bloquea esta URL para el rastreo general.",
+        title: S.robotsOkTitle,
+        message: S.robotsOkMsg,
       });
     }
   }
@@ -187,48 +193,48 @@ export async function analyzeCrawlability(input: CrawlInput): Promise<{ summary:
       issues.push({
         category: "Indexing",
         severity: "warning",
-        title: "URL ausente en el sitemap",
-        message: `El sitemap ${empty.sitemap.sitemap_url} no incluye esta URL. Añádela para priorizar su rastreo.`,
+        title: S.sitemapMissingTitle,
+        message: fill(S.sitemapMissingMsg, { url: empty.sitemap.sitemap_url ?? "" }),
       });
     } else if (empty.sitemap.url_included === true) {
       issues.push({
         category: "Indexing",
         severity: "ok",
-        title: "URL incluida en el sitemap",
-        message: `${empty.sitemap.urls_count ?? "?"} URLs en ${empty.sitemap.sitemap_url}.`,
+        title: S.sitemapOkTitle,
+        message: fill(S.sitemapOkMsg, { n: empty.sitemap.urls_count ?? "?", url: empty.sitemap.sitemap_url ?? "" }),
       });
     }
   }
 
   // 3. Veredicto de indexabilidad
   const reasons: string[] = [];
-  if (isNoindex) reasons.push("directiva noindex");
-  if (empty.robots.allows_page === false) reasons.push("bloqueo en robots.txt");
-  if (canonicalUrl && norm(canonicalUrl) !== norm(pageUrl)) reasons.push(`canonical apunta a ${canonicalUrl}`);
+  if (isNoindex) reasons.push(S.reasonNoindex);
+  if (empty.robots.allows_page === false) reasons.push(S.reasonRobots);
+  if (canonicalUrl && norm(canonicalUrl) !== norm(pageUrl)) reasons.push(fill(S.reasonCanonical, { url: canonicalUrl }));
   empty.indexability = { verdict: reasons.length > 0 ? "blocked" : "indexable", reasons };
   if (reasons.length > 0) {
     issues.push({
       category: "Indexing",
       severity: "critical",
-      title: "Página no indexable",
-      message: `Esta URL no llegará al índice: ${reasons.join(" · ")}.`,
+      title: S.notIndexableTitle,
+      message: fill(S.notIndexableMsg, { reasons: reasons.join(" · ") }),
     });
   }
 
   // 4. AI-readiness
   const notes: string[] = [];
-  if (empty.robots.blocks_ai_bots.length > 0) notes.push(`AI crawlers bloqueados: ${empty.robots.blocks_ai_bots.join(", ")}`);
-  if (schemaTypes.length === 0) notes.push("sin datos estructurados");
-  if (wordCount < 300) notes.push(`contenido escaso (${wordCount} palabras)`);
+  if (empty.robots.blocks_ai_bots.length > 0) notes.push(fill(S.aiNoteBlocked, { bots: empty.robots.blocks_ai_bots.join(", ") }));
+  if (schemaTypes.length === 0) notes.push(S.aiNoteNoSchema);
+  if (wordCount < 300) notes.push(fill(S.aiNoteThin, { n: wordCount }));
   const ready = empty.robots.blocks_ai_bots.length === 0 && schemaTypes.length > 0 && wordCount >= 300;
   empty.ai_readiness = { ready, notes };
   issues.push({
     category: "AI-Ready",
     severity: ready ? "ok" : "warning",
-    title: ready ? "Lista para motores de respuesta" : "Preparación parcial para IA",
+    title: ready ? S.aiReadyOkTitle : S.aiPartialTitle,
     message: ready
-      ? "AI crawlers permitidos, datos estructurados y contenido suficiente para citas en respuestas generativas."
-      : `Para ser citada por Perplexity/ChatGPT/Gemini: ${notes.join(" · ") || "revisar señales"}.`,
+      ? S.aiReadyOkMsg
+      : fill(S.aiPartialMsg, { notes: notes.join(" · ") || S.aiNoteGeneric }),
   });
 
   return { summary: empty, issues };

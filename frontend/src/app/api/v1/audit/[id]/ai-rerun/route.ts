@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { analyzeAudit } from "@/lib/ai";
 import { getSupabase, type AuditRow } from "@/lib/supabase";
 import { rowToResponse } from "@/lib/audit-map";
+import { resolveLocale, localeFromRequest } from "@/lib/locale";
+import { srv, fill } from "@/lib/srv";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -10,7 +12,16 @@ interface Params {
   params: { id: string };
 }
 
-export async function POST(_req: Request, { params }: Params) {
+export async function POST(req: Request, { params }: Params) {
+  const fallback = localeFromRequest(req);
+  let locale = fallback;
+  try {
+    const body = (await req.json()) as { locale?: string };
+    locale = resolveLocale(body?.locale ?? fallback);
+  } catch {
+    /* empty body: keep header locale */
+  }
+  const A = srv(locale).api;
   const supabase = getSupabase();
   const { data: existing, error } = await supabase
     .from("audits")
@@ -19,18 +30,21 @@ export async function POST(_req: Request, { params }: Params) {
     .single();
 
   if (error || !existing) {
-    return NextResponse.json({ detail: "Auditoría no encontrada." }, { status: 404 });
+    return NextResponse.json({ detail: A.notFound }, { status: 404 });
   }
   const row = existing as AuditRow;
 
-  const aiAnalysis = await analyzeAudit({
-    url: row.url,
-    title: row.title,
-    description: row.description,
-    headings: row.headings ?? [],
-    contentSnippet: row.content_stats?.text_snippet ?? "",
-    wordCount: row.content_stats?.word_count ?? 0,
-  });
+  const aiAnalysis = await analyzeAudit(
+    {
+      url: row.url,
+      title: row.title,
+      description: row.description,
+      headings: row.headings ?? [],
+      contentSnippet: row.content_stats?.text_snippet ?? "",
+      wordCount: row.content_stats?.word_count ?? 0,
+    },
+    locale
+  );
 
   const { data: updated, error: updateError } = await supabase
     .from("audits")
@@ -41,7 +55,7 @@ export async function POST(_req: Request, { params }: Params) {
 
   if (updateError || !updated) {
     return NextResponse.json(
-      { detail: `No se pudo guardar el análisis: ${updateError?.message ?? "error desconocido"}` },
+      { detail: fill(A.aiSaveFail, { err: updateError?.message ?? "?" }) },
       { status: 500 }
     );
   }

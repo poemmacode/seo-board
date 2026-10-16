@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import type { AuditResponse } from "@/lib/types";
 
 interface Props {
@@ -18,16 +19,20 @@ function tone(len: number, min: number, max: number): string {
   return "text-amber-300";
 }
 
-function domainOf(url: string): string {
+function domainOf(url: string, fallback: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
   } catch {
-    return url.replace(/^https?:\/\//, "").split("/")[0] || "ejemplo.com";
+    return url.replace(/^https?:\/\//, "").split("/")[0] || fallback;
   }
 }
 
-/** Previsualiza cómo se vería la página en Google y al compartir (Open Graph). */
+/** Previews how the page would look on Google and when shared (Open Graph). */
 export default function SerpVisualizer({ audit }: Props) {
+  const t = useTranslations("serp");
+  const locale = useLocale();
+  const fallbackDomain = locale === "es" ? "ejemplo.com" : "example.com";
+  const fallbackUrl = locale === "es" ? "https://ejemplo.com/pagina" : "https://example.com/page";
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [description, setDescription] = useState("");
@@ -65,11 +70,10 @@ export default function SerpVisualizer({ audit }: Props) {
     setUploadPreview(URL.createObjectURL(f));
   };
 
-  const domain = domainOf(url || "https://ejemplo.com/pagina");
+  const domain = domainOf(url || fallbackUrl, fallbackDomain);
   const initial = (domain[0] ?? "E").toUpperCase();
-  const shownTitle = title || "Título de la página — aparecerá aquí";
-  const shownDesc =
-    description || "La meta descripción aparecerá aquí. Escribe arriba para previsualizar el snippet.";
+  const shownTitle = title || t("titleFallback");
+  const shownDesc = description || t("descFallback");
   const clippedTitle = shownTitle.length > TITLE_MAX ? `${shownTitle.slice(0, TITLE_MAX - 1)}…` : shownTitle;
   const clippedDesc = shownDesc.length > DESC_MAX ? `${shownDesc.slice(0, DESC_MAX - 1)}…` : shownDesc;
   const image = uploadPreview ?? imageUrl.trim();
@@ -78,66 +82,66 @@ export default function SerpVisualizer({ audit }: Props) {
     <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
       <div className="card h-fit space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">Datos de la página</h3>
+          <h3 className="text-sm font-semibold">{t("dataTitle")}</h3>
           <div className="flex gap-2">
             <button className="btn-ghost" onClick={importFromAudit} disabled={!audit}>
-              Importar auditoría
+              {t("import")}
             </button>
             <button className="btn-ghost" onClick={clear}>
-              Limpiar
+              {t("clear")}
             </button>
           </div>
         </div>
         <label className="block text-xs text-zinc-400">
-          Título (title)
+          {t("titleLabel")}
           <input
             className="input-dark mt-1"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Guía definitiva de SEO on-page 2026"
+            placeholder={t("titlePlaceholder")}
             maxLength={120}
           />
           <span className={`mt-1 block text-[11px] ${tone(title.length, 45, 65)}`}>
-            {title.length} caracteres · óptimo 45–65
+            {t("titleHint", { n: title.length })}
           </span>
         </label>
         <label className="block text-xs text-zinc-400">
-          URL
+          {t("urlLabel")}
           <input
             className="input-dark mt-1"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://ejemplo.com/guia-seo"
+            placeholder={t("urlPlaceholder")}
             inputMode="url"
             spellCheck={false}
           />
         </label>
         <label className="block text-xs text-zinc-400">
-          Meta descripción
+          {t("descLabel")}
           <textarea
             className="input-dark mt-1 min-h-20"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Aprende a optimizar…"
+            placeholder={t("descPlaceholder")}
             maxLength={320}
           />
           <span className={`mt-1 block text-[11px] ${tone(description.length, 120, 160)}`}>
-            {description.length} caracteres · óptimo 120–160
+            {t("descHint", { n: description.length })}
           </span>
         </label>
         <label className="block text-xs text-zinc-400">
-          Imagen OG (URL)
+          {t("ogUrlLabel")}
           <input
             className="input-dark mt-1"
             value={imageUrl}
             onChange={(e) => setImageUrl(e.target.value)}
-            placeholder="https://ejemplo.com/og.jpg"
+            placeholder={t("urlPlaceholder").replace(/\/[^/]*$/, "/og.jpg")}
             inputMode="url"
             spellCheck={false}
           />
         </label>
         <label className="block text-xs text-zinc-400">
-          …o subir imagen
+          {t("uploadLabel")}
           <input
             type="file"
             accept="image/*"
@@ -152,7 +156,7 @@ export default function SerpVisualizer({ audit }: Props) {
               onClick={() => setDevice(d)}
               className={`btn-ghost ${device === d ? "border-zinc-400 bg-zinc-800 text-zinc-100" : ""}`}
             >
-              {d === "desktop" ? "Escritorio" : "Móvil"}
+              {d === "desktop" ? t("desktop") : t("mobile")}
             </button>
           ))}
         </div>
@@ -160,7 +164,7 @@ export default function SerpVisualizer({ audit }: Props) {
 
       <div className="space-y-4">
         <div className="card">
-          <h3 className="text-sm font-semibold">Google · {device === "desktop" ? "Escritorio" : "Móvil"}</h3>
+          <h3 className="text-sm font-semibold">{t("googleTitle", { device: device === "desktop" ? t("desktop") : t("mobile") })}</h3>
           <div className={`mt-3 rounded-lg bg-[#202124] p-4 ${device === "mobile" ? "mx-auto max-w-[360px]" : ""}`}>
             <div className="flex items-center gap-2.5">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-600 text-sm text-white">
@@ -169,7 +173,7 @@ export default function SerpVisualizer({ audit }: Props) {
               <span className="min-w-0">
                 <span className="block truncate text-xs text-[#dadce0]">{domain}</span>
                 <span className="block truncate text-[11px] text-[#bdc1c6]">
-                  {(url || "https://ejemplo.com/pagina").replace(/^https?:\/\//, "")}
+                  {(url || fallbackUrl).replace(/^https?:\/\//, "")}
                 </span>
               </span>
             </div>
@@ -181,21 +185,21 @@ export default function SerpVisualizer({ audit }: Props) {
             </p>
             {(title.length > TITLE_MAX || description.length > DESC_MAX) && (
               <p className="mt-2 text-[11px] text-amber-300">
-                Google recortará el texto marcado con "…" — acórtalo para controlar el mensaje.
+                {t("clipWarn")}
               </p>
             )}
           </div>
         </div>
 
         <div className="card">
-          <h3 className="text-sm font-semibold">Al compartir · Open Graph</h3>
+          <h3 className="text-sm font-semibold">{t("ogCardTitle")}</h3>
           <div className="mt-3 max-w-[520px] overflow-hidden rounded-lg border border-line bg-ink">
             {image ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={image} alt="Vista previa OG" className="aspect-[1.91/1] w-full object-cover" />
+              <img src={image} alt={t("ogImageAlt")} className="aspect-[1.91/1] w-full object-cover" />
             ) : (
               <div className="flex aspect-[1.91/1] w-full items-center justify-center text-xs text-zinc-600">
-                Sin imagen — añade una URL o sube un archivo (recomendado 1200×630)
+                {t("noImage")}
               </div>
             )}
             <div className="p-3">

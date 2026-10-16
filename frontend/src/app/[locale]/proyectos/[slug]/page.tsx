@@ -1,8 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import ScoreRing from "@/components/ScoreRing";
+import TopNav from "@/components/TopNav";
 import { scoreTone } from "@/lib/score";
+import { formatDateTime } from "@/lib/format";
+import { resolveLocale } from "@/lib/locale";
+import { Link } from "@/i18n/navigation";
 import type { AuditSummary, Project } from "@/lib/types";
 
 const barColor: Record<string, string> = {
@@ -12,15 +17,20 @@ const barColor: Record<string, string> = {
 };
 
 export default function ProjectDetailPage({ params }: { params: { slug: string } }) {
+  const t = useTranslations("projects");
+  const tTop = useTranslations("topNav");
+  const locale = resolveLocale(useLocale());
   const [project, setProject] = useState<Project | null>(null);
   const [audits, setAudits] = useState<AuditSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/v1/projects/${params.slug}`, { cache: "no-store" });
       if (res.status === 404) {
-        setError("Proyecto no encontrado.");
+        setError(t("notFound"));
         return;
       }
       if (!res.ok) throw new Error(`Error ${res.status}`);
@@ -28,8 +38,9 @@ export default function ProjectDetailPage({ params }: { params: { slug: string }
       setProject(body.project);
       setAudits(body.audits);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo cargar el proyecto.");
+      setError(e instanceof Error ? e.message : t("notFound"));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.slug]);
 
   useEffect(() => {
@@ -37,11 +48,25 @@ export default function ProjectDetailPage({ params }: { params: { slug: string }
   }, [load]);
 
   const handleDelete = async (id: string) => {
+    if (!window.confirm(t("confirm"))) return;
+    setDeleteError(null);
+    setDeletingId(id);
     try {
-      await fetch(`/api/v1/audit/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/v1/audit/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        let detail = `Error ${res.status}`;
+        try {
+          detail = ((await res.json()) as { detail?: string }).detail ?? detail;
+        } catch {
+          /* noop */
+        }
+        throw new Error(detail);
+      }
       await load();
-    } catch {
-      /* noop */
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : t("deleteError"));
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -49,9 +74,12 @@ export default function ProjectDetailPage({ params }: { params: { slug: string }
 
   return (
     <main className="mx-auto max-w-7xl p-4 sm:p-6">
-      <a href="/proyectos" className="text-xs text-zinc-400 hover:text-zinc-200">
-        ← Proyectos
-      </a>
+      <TopNav
+        trail={[
+          { label: tTop("projects"), href: "/proyectos" },
+          { label: project?.domain ?? params.slug },
+        ]}
+      />
       {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
 
       {project && (
@@ -61,25 +89,23 @@ export default function ProjectDetailPage({ params }: { params: { slug: string }
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-lg font-bold">{project.domain}</h1>
               <p className="mt-1 text-xs text-zinc-500">
-                {project.audits_count} auditoría(s)
-                {project.last_audit_at
-                  ? ` · última el ${new Date(project.last_audit_at).toLocaleString("es")}`
-                  : ""}
+                {t("auditsCount", { count: project.audits_count })}
+                {project.last_audit_at ? ` ${t("lastAudit", { date: formatDateTime(project.last_audit_at, locale) })}` : ""}
               </p>
-              <a href="/" className="btn-ghost mt-3 inline-block">
-                Nueva auditoría
-              </a>
+              <Link href="/" className="btn-ghost mt-3 inline-block">
+                {t("newAudit")}
+              </Link>
             </div>
           </div>
 
           {evolution.length > 1 && (
             <div className="card mt-4">
-              <h3 className="text-sm font-semibold">Evolución del score</h3>
+              <h3 className="text-sm font-semibold">{t("evolution")}</h3>
               <div className="mt-3 flex h-24 items-end gap-1.5">
                 {evolution.map((a) => (
                   <div
                     key={a.id}
-                    title={`${a.score} · ${new Date(a.created_at).toLocaleString("es")}`}
+                    title={`${a.score} · ${formatDateTime(a.created_at, locale)}`}
                     className={`min-w-3 flex-1 rounded-t ${barColor[scoreTone(a.score)]}`}
                     style={{ height: `${a.score}%` }}
                   />
@@ -89,10 +115,11 @@ export default function ProjectDetailPage({ params }: { params: { slug: string }
           )}
 
           <div className="card mt-4">
-            <h3 className="text-sm font-semibold">Historial de auditorías</h3>
+            <h3 className="text-sm font-semibold">{t("historyTitle")}</h3>
+            {deleteError && <p className="mt-2 text-xs text-red-300">{deleteError}</p>}
             <div className="mt-3 space-y-2">
               {audits.length === 0 && (
-                <p className="text-xs text-zinc-500">Sin auditorías en este proyecto.</p>
+                <p className="text-xs text-zinc-500">{t("emptyAudits")}</p>
               )}
               {audits.map((a) => (
                 <div
@@ -105,24 +132,31 @@ export default function ProjectDetailPage({ params }: { params: { slug: string }
                       {a.url}
                     </span>
                     <span className="block text-zinc-500">
-                      {new Date(a.created_at).toLocaleString("es")} · {a.status_code} ·{" "}
-                      {a.issues_critical_count} críticas · {a.issues_warning_count} avisos
+                      {t("rowStats", {
+                        date: formatDateTime(a.created_at, locale),
+                        status: a.status_code,
+                        critical: a.issues_critical_count,
+                        warning: a.issues_warning_count,
+                      })}
                     </span>
                   </span>
                   <span className="flex gap-1.5">
-                    <a className="btn-ghost" href={`/?audit=${a.id}`}>
-                      Ver
-                    </a>
-                    <a
+                    <Link className="btn-ghost" href={{ pathname: "/", query: { audit: a.id } }}>
+                      {t("view")}
+                    </Link>
+                    <Link
                       className="btn-ghost"
                       href={`/proyectos/${project.slug}/auditorias/${a.id}/print`}
                       target="_blank"
-                      rel="noreferrer"
                     >
-                      PDF
-                    </a>
-                    <button className="btn-ghost" onClick={() => handleDelete(a.id)}>
-                      Eliminar
+                      {t("pdf")}
+                    </Link>
+                    <button
+                      className="btn-ghost disabled:opacity-50"
+                      disabled={deletingId === a.id}
+                      onClick={() => handleDelete(a.id)}
+                    >
+                      {deletingId === a.id ? t("deleting") : t("delete")}
                     </button>
                   </span>
                 </div>

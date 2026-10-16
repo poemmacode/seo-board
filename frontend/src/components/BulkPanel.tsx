@@ -1,9 +1,12 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import ScoreRing from "./ScoreRing";
 import { auditUrl } from "@/lib/api";
 import { calculateScoreFromIssues } from "@/lib/score";
+import { resolveLocale } from "@/lib/locale";
+import { Link } from "@/i18n/navigation";
 import type { AuditResponse } from "@/lib/types";
 
 interface Row {
@@ -28,8 +31,10 @@ function parseUrls(raw: string): string[] {
   return out.slice(0, MAX_URLS);
 }
 
-/** Auditoría masiva: lanza N auditorías con concurrencia limitada y compara resultados. */
+/** Bulk audit: runs N audits with limited concurrency and compares results. */
 export default function BulkPanel() {
+  const t = useTranslations("bulk");
+  const locale = resolveLocale(useLocale());
   const [input, setInput] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [running, setRunning] = useState(false);
@@ -53,7 +58,7 @@ export default function BulkPanel() {
         const url = urls[i];
         patch(url, { status: "running" });
         try {
-          const audit = await auditUrl(url, false);
+          const audit = await auditUrl(url, false, locale);
           patch(url, { status: "ok", audit });
         } catch (e) {
           patch(url, { status: "error", error: e instanceof Error ? e.message : "Error" });
@@ -93,29 +98,29 @@ export default function BulkPanel() {
   return (
     <div className="space-y-4">
       <div className="card">
-        <h3 className="text-sm font-semibold">URLs a auditar (máx. {MAX_URLS}, una por línea o separadas por comas)</h3>
+        <h3 className="text-sm font-semibold">{t("hint", { max: MAX_URLS })}</h3>
         <textarea
           className="input-dark mt-2 min-h-28 font-mono text-xs"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={"https://ejemplo.com/\nhttps://ejemplo.com/precios\nhttps://ejemplo.com/blog"}
+          placeholder={t("placeholder")}
           spellCheck={false}
         />
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button className="btn-primary" onClick={start} disabled={running || parseUrls(input).length === 0}>
-            {running ? `Auditando ${done}/${total}…` : "Auditar en lote"}
+            {running ? t("running", { done, total }) : t("run")}
           </button>
           {running && (
             <button className="btn-ghost" onClick={() => (cancelRef.current = true)}>
-              Cancelar
+              {t("cancel")}
             </button>
           )}
           {total > 0 && !running && (
             <button className="btn-ghost" onClick={exportCsv}>
-              Exportar CSV
+              {t("export")}
             </button>
           )}
-          <span className="text-xs text-zinc-500">Sin IA en modo lote (más rápido y barato).</span>
+          <span className="text-xs text-zinc-500">{t("noAiNote")}</span>
         </div>
         {running && (
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-800">
@@ -129,7 +134,7 @@ export default function BulkPanel() {
 
       {total > 0 && (
         <div className="card">
-          <h3 className="text-sm font-semibold">Comparativa ({done}/{total} completadas)</h3>
+          <h3 className="text-sm font-semibold">{t("comparison", { done, total })}</h3>
           <div className="mt-3 space-y-2">
             {rows.map((r) => {
               const s = r.audit ? calculateScoreFromIssues(r.audit.issues) : null;
@@ -150,21 +155,21 @@ export default function BulkPanel() {
                       {r.url}
                     </span>
                     <span className="block text-zinc-500">
-                      {r.status === "pending" && "En cola"}
-                      {r.status === "running" && "Auditando…"}
+                      {r.status === "pending" && t("queued")}
+                      {r.status === "running" && t("auditingRow")}
                       {r.status === "error" && <span className="text-red-300">{r.error}</span>}
-                      {s && `${s.critical} críticas · ${s.warning} avisos · ${r.audit?.content_stats.word_count} palabras`}
+                      {s && t("stats", { critical: s.critical, warning: s.warning, words: r.audit?.content_stats.word_count ?? 0 })}
                     </span>
                   </span>
                   {r.audit && (
                     <span className="flex gap-1.5">
-                      <a className="btn-ghost" href={`/?audit=${r.audit.id}`}>
-                        Ver
-                      </a>
+                      <Link className="btn-ghost" href={{ pathname: "/", query: { audit: r.audit.id } }}>
+                        {t("view")}
+                      </Link>
                       {r.audit.project_slug && (
-                        <a className="btn-ghost" href={`/proyectos/${r.audit.project_slug}`}>
-                          Proyecto
-                        </a>
+                        <Link className="btn-ghost" href={`/proyectos/${r.audit.project_slug}`}>
+                          {t("project")}
+                        </Link>
                       )}
                     </span>
                   )}

@@ -1,35 +1,6 @@
 import type { AIAnalysisResult, HeadingItem } from "./types";
-
-const SYSTEM_PROMPT = `Eres un Arquitecto SEO Senior y especialista en Optimización para Motores de Respuesta (GEO/AEO).
-Tu labor es analizar los datos de extracción on-page de una URL y proporcionar un informe estratégico en formato JSON estricto.
-
-Debes responder ÚNICAMENTE con un objeto JSON válido, sin bloques de markdown adicionales (sin \`\`\`json ... \`\`\` ni comentarios), siguiendo esta estructura exacta:
-{
-  "search_intent": "Informacional | Comercial | Transaccional | Navegacional",
-  "intent_explanation": "Explicación concisa (1-2 frases) del porqué de esta intención según el contenido analizado",
-  "title_suggestions": [
-    "Sugerencia 1 de Título optimizado (45-60 caracteres, con keyword y gancho de CTR)",
-    "Sugerencia 2 alternativa enfocada en búsqueda semántica o de intención directa"
-  ],
-  "description_suggestions": [
-    "Sugerencia 1 de Meta Descripción atractiva con llamada a la acción clara (130-155 caracteres)",
-    "Sugerencia 2 orientada a resolver la intención del usuario para snippets enriquecidos"
-  ],
-  "content_evaluation": {
-    "thin_content_risk": "Bajo | Moderado | Alto - motivo",
-    "cannibalization_notes": "Advertencia breve sobre posibles riesgos de canibalización semántica",
-    "strengths": [
-      "Punto fuerte 1 del contenido",
-      "Punto fuerte 2 del contenido"
-    ]
-  },
-  "geo_aeo_recommendations": [
-    "Recomendación 1 accionable para AEO (estructuración en listas, respuestas directas en párrafos iniciales, etc.)",
-    "Recomendación 2 para citas de IA (Perplexity, ChatGPT Search, Gemini)",
-    "Recomendación 3 de datos estructurados o formato conversacional"
-  ]
-}
-`;
+import type { Locale } from "./locale";
+import { srv, fill } from "./srv";
 
 export interface AnalyzeInput {
   url: string;
@@ -44,7 +15,9 @@ function env(name: string, fallback = ""): string {
   return process.env[name] ?? fallback;
 }
 
-export async function analyzeAudit(input: AnalyzeInput): Promise<AIAnalysisResult> {
+export async function analyzeAudit(input: AnalyzeInput, locale: Locale = "en"): Promise<AIAnalysisResult> {
+  const A = srv(locale).ai;
+  const SYSTEM_PROMPT = A.system;
   const provider = (env("AI_PROVIDER", "openai") || "openai").toLowerCase();
   const { url, title, description, headings, contentSnippet, wordCount } = input;
 
@@ -54,35 +27,35 @@ export async function analyzeAudit(input: AnalyzeInput): Promise<AIAnalysisResul
     .join("\n");
 
   const userPrompt =
-    `Analiza la siguiente página web:\n` +
-    `- URL: ${url}\n` +
-    `- Título actual (${(title ?? "").length} caracteres): ${title || "NO TIENE"}\n` +
-    `- Meta Descripción (${(description ?? "").length} caracteres): ${description || "NO TIENE"}\n` +
-    `- Total de palabras: ${wordCount}\n` +
-    `- Estructura de Encabezados principales:\n${hSummary || "Sin encabezados detectados"}\n\n` +
-    `- Fragmento de contenido textual:\n"""${contentSnippet.slice(0, 2000)}"""\n\n` +
-    `Genera la respuesta en JSON estricto.`;
+    `${A.userIntro}\n` +
+    fill(A.userUrl, { v: url }) + `\n` +
+    fill(A.userTitle, { n: (title ?? "").length, v: title || A.noValue }) + `\n` +
+    fill(A.userDesc, { n: (description ?? "").length, v: description || A.noValue }) + `\n` +
+    fill(A.userWords, { n: wordCount }) + `\n` +
+    `${A.userHeadings}\n${hSummary || A.userNoHeadings}\n\n` +
+    `${A.userSnippet}\n"""${contentSnippet.slice(0, 2000)}"""\n\n` +
+    A.userStrict;
 
   if (provider === "openai" && !env("OPENAI_API_KEY")) {
-    return heuristicAnalysis(url, title, wordCount, "openai");
+    return heuristicAnalysis(url, title, wordCount, "openai", locale);
   }
   if (provider === "anthropic" && !env("ANTHROPIC_API_KEY")) {
-    return heuristicAnalysis(url, title, wordCount, "anthropic");
+    return heuristicAnalysis(url, title, wordCount, "anthropic", locale);
   }
 
   try {
     const raw =
       provider === "anthropic"
-        ? await callAnthropic(userPrompt)
-        : await callOpenAICompatible(userPrompt);
+        ? await callAnthropic(userPrompt, SYSTEM_PROMPT)
+        : await callOpenAICompatible(userPrompt, SYSTEM_PROMPT);
     return parseAIJson(raw);
   } catch (e) {
     const reason = e instanceof Error ? e.message.slice(0, 80) : String(e).slice(0, 80);
-    return heuristicAnalysis(url, title, wordCount, `fallback (error: ${reason})`);
+    return heuristicAnalysis(url, title, wordCount, `fallback (error: ${reason})`, locale);
   }
 }
 
-async function callOpenAICompatible(userPrompt: string): Promise<string> {
+async function callOpenAICompatible(userPrompt: string, systemPrompt: string): Promise<string> {
   const provider = (env("AI_PROVIDER", "openai") || "openai").toLowerCase();
   const baseUrl =
     provider === "ollama"
@@ -94,7 +67,7 @@ async function callOpenAICompatible(userPrompt: string): Promise<string> {
   const body: Record<string, unknown> = {
     model,
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
     temperature: 0.2,
@@ -121,7 +94,7 @@ async function callOpenAICompatible(userPrompt: string): Promise<string> {
   return data.choices?.[0]?.message?.content ?? "{}";
 }
 
-async function callAnthropic(userPrompt: string): Promise<string> {
+async function callAnthropic(userPrompt: string, systemPrompt: string): Promise<string> {
   const configured = env("AI_MODEL", "");
   const model = configured.toLowerCase().includes("claude")
     ? configured
@@ -137,7 +110,7 @@ async function callAnthropic(userPrompt: string): Promise<string> {
     body: JSON.stringify({
       model,
       max_tokens: 1500,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
       temperature: 0.2,
     }),
@@ -166,36 +139,31 @@ function heuristicAnalysis(
   url: string,
   title: string | null,
   wordCount: number,
-  reason: string
+  reason: string,
+  locale: Locale = "en"
 ): AIAnalysisResult {
-  const t = title || "Página sin título";
-  const thinRisk = wordCount < 250 ? "Alto" : wordCount > 600 ? "Bajo" : "Moderado";
+  const A = srv(locale).ai;
+  const t = title || (locale === "es" ? "Página sin título" : "Untitled page");
+  const thinRisk = wordCount < 250 ? A.heurLevelHigh : wordCount > 600 ? A.heurLevelLow : A.heurLevelMod;
   return {
-    search_intent: /guia|blog/i.test(url) ? "Informacional" : "Comercial",
-    intent_explanation:
-      `[Modo heurístico / Configurar ${reason} en variables de entorno]: ` +
-      `La URL y el vocabulario extraído sugieren una intención orientada a búsqueda temática.`,
+    search_intent: /guia|guide|blog/i.test(url) ? A.heurIntentInfo : A.heurIntentComm,
+    intent_explanation: fill(A.heurPrefix, { reason }) + A.heurExpl,
     title_suggestions: [
-      `${t.slice(0, 45)} | Guía Definitiva y Consejos Clave`,
-      `Mejores Prácticas: ${t.slice(0, 40)} (Edición Actualizada)`,
+      fill(A.heurTitle1, { t: t.slice(0, 45) }),
+      fill(A.heurTitle2, { t: t.slice(0, 40) }),
     ],
     description_suggestions: [
-      `Descubre todo sobre ${t.slice(0, 40)}. Guía completa con ejemplos prácticos, respuestas rápidas y análisis detallado.`,
-      `¿Buscas optimizar ${t.slice(0, 35)}? Aprende las claves esenciales para mejorar tus resultados paso a paso.`,
+      fill(A.heurDesc1, { t: t.slice(0, 40) }),
+      fill(A.heurDesc2, { t: t.slice(0, 35) }),
     ],
     content_evaluation: {
-      thin_content_risk: `${thinRisk} (${wordCount} palabras detectadas)`,
-      cannibalization_notes:
-        "Asegurar que cada URL del dominio atienda a una palabra clave única en su H1 y Title.",
+      thin_content_risk: fill(A.heurThin, { level: thinRisk, n: wordCount }),
+      cannibalization_notes: A.heurCannib,
       strengths: [
-        "Estructura identificable en el DOM",
-        `Volumen de texto legible de ${wordCount} palabras`,
+        A.heurStrength1,
+        fill(A.heurStrength2, { n: wordCount }),
       ],
     },
-    geo_aeo_recommendations: [
-      "Formato Q&A: Añade una sección de Preguntas Frecuentes directas con schema FAQPage para ser citado por Perplexity y ChatGPT.",
-      "Párrafo de Respuesta Inmediata: Inicia las secciones principales con una definición de 40-50 palabras antes de profundizar.",
-      "Datos Estructurados Ricos: Implementa JSON-LD (Article, Product o Organization) para alimentar motores de búsqueda generativa.",
-    ],
+    geo_aeo_recommendations: [A.heurGeo1, A.heurGeo2, A.heurGeo3],
   };
 }

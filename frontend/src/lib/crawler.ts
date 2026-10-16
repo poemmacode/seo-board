@@ -1,4 +1,6 @@
 import { load } from "cheerio";
+import type { Locale } from "./locale";
+import { srv, fill } from "./srv";
 import type {
   AuditIssue,
   ContentStats,
@@ -16,7 +18,6 @@ export class CrawlerException extends Error {
     this.statusCode = statusCode;
   }
 }
-
 const CRAWLER_TIMEOUT_MS = 15_000;
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
@@ -65,16 +66,17 @@ export function normalizeUrl(raw: string): string {
 
 const stripTrailingSlash = (u: string) => u.replace(/\/$/, "");
 
-export async function fetchAndExtract(rawUrl: string): Promise<ExtractedAudit> {
+export async function fetchAndExtract(rawUrl: string, locale: Locale = "en"): Promise<ExtractedAudit> {
+  const S = srv(locale).crawler;
   const normalized = normalizeUrl(rawUrl);
   let parsed: URL;
   try {
     parsed = new URL(normalized);
   } catch {
-    throw new CrawlerException(`URL inválida: "${rawUrl}"`, 422);
+    throw new CrawlerException(fill(S.errInvalidUrl, { url: rawUrl }), 422);
   }
   if (!["http:", "https:"].includes(parsed.protocol)) {
-    throw new CrawlerException("Solo se admiten URLs http(s).", 422);
+    throw new CrawlerException(S.errHttpOnly, 422);
   }
 
   const started = Date.now();
@@ -93,13 +95,10 @@ export async function fetchAndExtract(rawUrl: string): Promise<ExtractedAudit> {
     });
   } catch (e) {
     if (e instanceof DOMException && e.name === "TimeoutError") {
-      throw new CrawlerException(
-        `Tiempo de espera agotado al rastrear ${normalized} (>15s)`,
-        504
-      );
+      throw new CrawlerException(fill(S.errTimeout, { url: normalized }), 504);
     }
     throw new CrawlerException(
-      `Error de red al conectar con ${normalized}: ${e instanceof Error ? e.message : String(e)}`,
+      fill(S.errNetwork, { url: normalized, err: e instanceof Error ? e.message : String(e) }),
       502
     );
   }
@@ -108,7 +107,7 @@ export async function fetchAndExtract(rawUrl: string): Promise<ExtractedAudit> {
   const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
   if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
     throw new CrawlerException(
-      `El recurso no es un documento HTML (Content-Type recibido: '${contentType || "desconocido"}')`,
+      fill(S.errNonHtml, { ct: contentType || (locale === "es" ? "desconocido" : "unknown") }),
       response.status
     );
   }
@@ -125,6 +124,7 @@ export async function fetchAndExtract(rawUrl: string): Promise<ExtractedAudit> {
     isRedirect,
     redirectUrl: isRedirect ? finalUrl : null,
     redirectedToHttps: normalized.toLowerCase().startsWith("http://") && finalUrl.toLowerCase().startsWith("https://"),
+    locale,
   });
 }
 
@@ -136,10 +136,11 @@ interface ParseInput {
   isRedirect: boolean;
   redirectUrl: string | null;
   redirectedToHttps: boolean;
+  locale: Locale;
 }
 
 export function parseHtml(input: ParseInput): ExtractedAudit {
-  const { html, baseUrl, statusCode, latencyMs, isRedirect, redirectUrl, redirectedToHttps } = input;
+  const { html, baseUrl, statusCode, latencyMs, isRedirect, redirectUrl, redirectedToHttps, locale } = input;
   const domain = new URL(baseUrl).hostname;
   const $ = load(html);
 
@@ -292,6 +293,7 @@ export function parseHtml(input: ParseInput): ExtractedAudit {
   const issues = calculateIssues({
     pageUrl: baseUrl,
     redirectedToHttps,
+    locale,
     statusCode,
     latencyMs,
     title,
@@ -472,6 +474,7 @@ function extractContentStats(html: string): ContentStats {
 interface IssueInput {
   pageUrl: string;
   redirectedToHttps: boolean;
+  locale: Locale;
   statusCode: number;
   latencyMs: number;
   title: string | null;
@@ -496,6 +499,7 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
   const {
     pageUrl,
     redirectedToHttps,
+    locale,
     statusCode,
     latencyMs,
     title,
@@ -514,20 +518,21 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     local_signals,
     hreflang,
   } = input;
+  const S = srv(locale).crawler;
 
   if (statusCode !== 200) {
     issues.push({
       category: "Indexing",
       severity: statusCode >= 400 ? "critical" : "warning",
-      title: `Código de respuesta HTTP ${statusCode}`,
-      message: `La URL respondió con código ${statusCode}. Se esperaba 200 OK para indexación óptima.`,
+      title: fill(S.httpErrorTitle, { code: statusCode }),
+      message: fill(S.httpErrorMsg, { code: statusCode }),
     });
   } else {
     issues.push({
       category: "Indexing",
       severity: "ok",
-      title: "Estado HTTP 200 OK",
-      message: "La página responde correctamente con código 200.",
+      title: S.httpOkTitle,
+      message: S.httpOkMsg,
     });
   }
 
@@ -535,22 +540,22 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Performance",
       severity: "critical",
-      title: "Tiempo de respuesta muy lento",
-      message: `La página tardó ${latencyMs} ms en responder (> 2.0s). Podría afectar el rastreo y Core Web Vitals.`,
+      title: S.perfSlowTitle,
+      message: fill(S.perfSlowMsg, { ms: latencyMs }),
     });
   } else if (latencyMs > 800) {
     issues.push({
       category: "Performance",
       severity: "warning",
-      title: "Tiempo de respuesta moderado",
-      message: `La página tardó ${latencyMs} ms. Se recomienda reducir el TTFB por debajo de 800 ms.`,
+      title: S.perfModTitle,
+      message: fill(S.perfModMsg, { ms: latencyMs }),
     });
   } else {
     issues.push({
       category: "Performance",
       severity: "ok",
-      title: "Tiempo de respuesta rápido",
-      message: `Excelente latencia de servidor (${latencyMs} ms).`,
+      title: S.perfFastTitle,
+      message: fill(S.perfFastMsg, { ms: latencyMs }),
     });
   }
 
@@ -558,29 +563,29 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Meta",
       severity: "critical",
-      title: "Falta la etiqueta <title>",
-      message: "La página no tiene título definido, elemento vital para el ranking y CTR en Google.",
+      title: S.titleMissingTitle,
+      message: S.titleMissingMsg,
     });
   } else if (title_length < 30) {
     issues.push({
       category: "Meta",
       severity: "warning",
-      title: "Título demasiado corto",
-      message: `El título tiene solo ${title_length} caracteres. La longitud recomendada es entre 45 y 65 caracteres.`,
+      title: S.titleShortTitle,
+      message: fill(S.titleShortMsg, { n: title_length }),
     });
   } else if (title_length > 65) {
     issues.push({
       category: "Meta",
       severity: "warning",
-      title: "Título demasiado largo",
-      message: `El título tiene ${title_length} caracteres y probablemente sea recortado en las SERPs (máx recomendado ~60-65).`,
+      title: S.titleLongTitle,
+      message: fill(S.titleLongMsg, { n: title_length }),
     });
   } else {
     issues.push({
       category: "Meta",
       severity: "ok",
-      title: "Longitud de título óptima",
-      message: `El título tiene una longitud ideal (${title_length} caracteres).`,
+      title: S.titleOkTitle,
+      message: fill(S.titleOkMsg, { n: title_length }),
     });
   }
 
@@ -588,29 +593,29 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Meta",
       severity: "warning",
-      title: "Falta la meta descripción",
-      message: "No se encontró etiqueta meta description. Aunque no es factor de ranking directo, define el snippet en las SERPs.",
+      title: S.descMissingTitle,
+      message: S.descMissingMsg,
     });
   } else if (description_length < 70) {
     issues.push({
       category: "Meta",
       severity: "warning",
-      title: "Meta descripción corta",
-      message: `La descripción tiene ${description_length} caracteres. Se recomienda entre 120 y 160 caracteres.`,
+      title: S.descShortTitle,
+      message: fill(S.descShortMsg, { n: description_length }),
     });
   } else if (description_length > 165) {
     issues.push({
       category: "Meta",
       severity: "warning",
-      title: "Meta descripción demasiado larga",
-      message: `La descripción tiene ${description_length} caracteres y podría ser truncada en resultados de búsqueda.`,
+      title: S.descLongTitle,
+      message: fill(S.descLongMsg, { n: description_length }),
     });
   } else {
     issues.push({
       category: "Meta",
       severity: "ok",
-      title: "Meta descripción óptima",
-      message: `Longitud balanceada para snippets de búsqueda (${description_length} caracteres).`,
+      title: S.descOkTitle,
+      message: fill(S.descOkMsg, { n: description_length }),
     });
   }
 
@@ -618,22 +623,22 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Headers",
       severity: "critical",
-      title: "Falta encabezado H1",
-      message: "La página carece de un encabezado principal <h1> para definir el tema del contenido.",
+      title: S.h1MissingTitle,
+      message: S.h1MissingMsg,
     });
   } else if (headings_summary.multiple_h1) {
     issues.push({
       category: "Headers",
       severity: "warning",
-      title: "Múltiples encabezados H1 detectados",
-      message: `Se encontraron ${headings_summary.h1_count} etiquetas H1. Aunque HTML5 lo permite, se recomienda un único H1 temático claro.`,
+      title: S.h1MultiTitle,
+      message: fill(S.h1MultiMsg, { n: headings_summary.h1_count }),
     });
   } else {
     issues.push({
       category: "Headers",
       severity: "ok",
-      title: "Estructura H1 correcta",
-      message: "Se detectó un único encabezado H1 principal.",
+      title: S.h1OkTitle,
+      message: S.h1OkMsg,
     });
   }
 
@@ -641,15 +646,15 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Images",
       severity: images_summary.missing_alt_count > 5 ? "critical" : "warning",
-      title: `${images_summary.missing_alt_count} imágenes sin atributo ALT`,
-      message: "Las imágenes sin texto alternativo perjudican la accesibilidad web y el SEO de Google Imágenes.",
+      title: fill(S.imgAltTitle, { n: images_summary.missing_alt_count }),
+      message: S.imgAltMsg,
     });
   } else if (images_summary.total > 0) {
     issues.push({
       category: "Images",
       severity: "ok",
-      title: "Todas las imágenes tienen atributo ALT",
-      message: `Las ${images_summary.total} imágenes analizadas cuentan con descripción alternativa.`,
+      title: S.imgOkTitle,
+      message: fill(S.imgOkMsg, { n: images_summary.total }),
     });
   }
 
@@ -657,15 +662,15 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Indexing",
       severity: "warning",
-      title: "Falta etiqueta Canonical",
-      message: "No se encontró <link rel='canonical'> para prevenir problemas de contenido duplicado.",
+      title: S.canonMissingTitle,
+      message: S.canonMissingMsg,
     });
   } else {
     issues.push({
       category: "Indexing",
       severity: "ok",
-      title: "Etiqueta Canonical presente",
-      message: `URL canónica configurada: ${canonical_url}`,
+      title: S.canonOkTitle,
+      message: fill(S.canonOkMsg, { url: canonical_url }),
     });
   }
 
@@ -673,8 +678,8 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Indexing",
       severity: "critical",
-      title: "Falta etiqueta meta Viewport",
-      message: "Sin meta viewport, la página no se adaptará correctamente a dispositivos móviles.",
+      title: S.viewportTitle,
+      message: S.viewportMsg,
     });
   }
 
@@ -682,8 +687,8 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Meta",
       severity: "warning",
-      title: "Riesgo de Thin Content (< 250 palabras)",
-      message: `Se detectaron únicamente ${content_stats.word_count} palabras de texto en el cuerpo principal.`,
+      title: S.thinTitle,
+      message: fill(S.thinMsg, { n: content_stats.word_count }),
     });
   }
 
@@ -691,8 +696,8 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Indexing",
       severity: "warning",
-      title: "Directiva 'noindex' detectada",
-      message: `La directiva robots '${robots_meta}' impide que los motores de búsqueda indexen esta página.`,
+      title: S.noindexTitle,
+      message: fill(S.noindexMsg, { v: robots_meta }),
     });
   }
 
@@ -707,22 +712,22 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Security",
       severity: "critical",
-      title: "La página se sirve por HTTP",
-      message: "Sin HTTPS los navegadores marcan la página como no segura y Google penaliza el ranking. Migra a HTTPS con certificado válido y redirección 301.",
+      title: S.httpPageTitle,
+      message: S.httpPageMsg,
     });
   } else if (redirectedToHttps) {
     issues.push({
       category: "Security",
       severity: "warning",
-      title: "Redirige HTTP → HTTPS",
-      message: "La versión HTTP redirige a HTTPS. Actualiza enlaces internos y canonical a la versión HTTPS para evitar saltos.",
+      title: S.httpsRedirectTitle,
+      message: S.httpsRedirectMsg,
     });
   } else if (protocol === "https:") {
     issues.push({
       category: "Security",
       severity: "ok",
-      title: "HTTPS activo",
-      message: "La página se sirve con cifrado HTTPS.",
+      title: S.httpsOkTitle,
+      message: S.httpsOkMsg,
     });
   }
 
@@ -731,25 +736,25 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Indexing",
       severity: "warning",
-      title: "Canonical apunta a otra URL",
-      message: `El canonical (${canonical_url}) difiere de la URL auditada. Solo es correcto si quieres consolidar el ranking en esa otra URL.`,
+      title: S.canonExtTitle,
+      message: fill(S.canonExtMsg, { url: canonical_url }),
     });
   }
 
-  // Analítica y medición
+  // Analítica y medición (solo informativo: no resta score ni sugiere optimizar)
   if (analytics.length === 0) {
     issues.push({
       category: "Tracking",
-      severity: "warning",
-      title: "Sin scripts de analítica detectados",
-      message: "No se encontró GA4, GTM, Pixel ni otra herramienta de medición. Sin datos no hay optimización posible.",
+      severity: "info",
+      title: S.trackMissingTitle,
+      message: S.trackMissingMsg,
     });
   } else {
     issues.push({
       category: "Tracking",
       severity: "ok",
-      title: `Medición activa: ${analytics.map((a) => a.provider).join(", ")}`,
-      message: `Se detectaron ${analytics.length} herramienta(s) de analítica en la página.`,
+      title: fill(S.trackOkTitle, { names: analytics.map((a) => a.provider).join(", ") }),
+      message: fill(S.trackOkMsg, { n: analytics.length }),
     });
   }
 
@@ -758,15 +763,15 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Schemas",
       severity: "warning",
-      title: "Sin datos estructurados (Schema.org)",
-      message: "No hay JSON-LD. Añade schemas (Article, FAQPage, Product…) para rich results y citas en motores de respuesta.",
+      title: S.schemaMissingTitle,
+      message: S.schemaMissingMsg,
     });
   } else {
     issues.push({
       category: "Schemas",
       severity: "ok",
-      title: `${schema_types.length} tipo(s) Schema.org: ${schema_types.slice(0, 4).join(", ")}`,
-      message: "Datos estructurados presentes para rich results y GEO/AEO.",
+      title: fill(S.schemaOkTitle, { n: schema_types.length, types: schema_types.slice(0, 4).join(", ") }),
+      message: S.schemaOkMsg,
     });
   }
 
@@ -775,8 +780,8 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Indexing",
       severity: "ok",
-      title: `${hreflang.length} etiqueta(s) hreflang`,
-      message: `Idiomas/regiones: ${hreflang.map((h) => h.lang).slice(0, 6).join(", ")}.`,
+      title: fill(S.hreflangTitle, { n: hreflang.length }),
+      message: fill(S.hreflangMsg, { langs: hreflang.map((h) => h.lang).slice(0, 6).join(", ") }),
     });
   }
 
@@ -785,15 +790,15 @@ function calculateIssues(input: IssueInput): AuditIssue[] {
     issues.push({
       category: "Local",
       severity: "ok",
-      title: "Presencia local detectada (posible ficha GBP)",
-      message: `Indicios: ${local_signals.slice(0, 4).join(" · ")}. La confirmación exacta de la ficha requiere verificación con Places API.`,
+      title: S.localOkTitle,
+      message: fill(S.localOkMsg, { signals: local_signals.slice(0, 4).join(" · ") }),
     });
   } else {
     issues.push({
       category: "Local",
       severity: "warning",
-      title: "Sin señales de presencia local",
-      message: "No hay teléfono, dirección, mapa ni schema LocalBusiness. Si el negocio atiende una zona, añade NAP + mapa + schema y verifica la ficha de Google Business Profile.",
+      title: S.localMissingTitle,
+      message: S.localMissingMsg,
     });
   }
 

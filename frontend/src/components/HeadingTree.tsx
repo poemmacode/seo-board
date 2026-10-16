@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import type { HeadingItem, HeadingsSummary } from "@/lib/types";
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export default function HeadingTree({ headings, summary }: Props) {
+  const t = useTranslations("headings");
   const [open, setOpen] = useState(true);
 
   return (
@@ -18,9 +20,9 @@ export default function HeadingTree({ headings, summary }: Props) {
         onClick={() => setOpen((v) => !v)}
       >
         <h3 className="text-sm font-semibold">
-          Jerarquía de encabezados
+          {t("title")}
           <span className="ml-2 text-xs font-normal text-zinc-500">
-            H1: {summary.h1_count} · H2: {summary.h2_count} · H3: {summary.h3_count}
+            {t("counts", { h1: summary.h1_count, h2: summary.h2_count, h3: summary.h3_count })}
           </span>
         </h3>
         <span className="text-zinc-500">{open ? "▾" : "▸"}</span>
@@ -28,7 +30,7 @@ export default function HeadingTree({ headings, summary }: Props) {
       {open && (
         <ul className="mt-3 max-h-72 space-y-1 overflow-auto text-sm">
           {headings.length === 0 && (
-            <li className="text-zinc-500">No se detectaron encabezados.</li>
+            <li className="text-zinc-500">{t("empty")}</li>
           )}
           {headings.map((h, i) => (
             <li

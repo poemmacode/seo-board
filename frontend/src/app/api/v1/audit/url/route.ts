@@ -7,40 +7,43 @@ import { calculateScoreFromCounts } from "@/lib/score";
 import { upsertProject, updateProjectStats } from "@/lib/projects";
 import { getSupabase, type AuditRow } from "@/lib/supabase";
 import { rowToResponse } from "@/lib/audit-map";
+import { resolveLocale, localeFromRequest } from "@/lib/locale";
+import { srv, fill } from "@/lib/srv";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  const locale = localeFromRequest(req);
+  const A = srv(locale).api;
   try {
-    return await runAudit(req);
+    return await runAudit(req, locale);
   } catch (e) {
     console.error("[audit/url]", e);
-    return NextResponse.json(
-      { detail: "Error interno al auditar. Revisa los logs del servidor." },
-      { status: 500 }
-    );
+    return NextResponse.json({ detail: A.internal }, { status: 500 });
   }
 }
 
-async function runAudit(req: Request) {
-  let body: { url?: string; include_ai?: boolean };
+async function runAudit(req: Request, locale: ReturnType<typeof resolveLocale>) {
+  const A = srv(locale).api;
+  let body: { url?: string; include_ai?: boolean; locale?: string };
   try {
-    body = (await req.json()) as { url?: string; include_ai?: boolean };
+    body = (await req.json()) as { url?: string; include_ai?: boolean; locale?: string };
   } catch {
-    return NextResponse.json({ detail: "Cuerpo JSON inválido." }, { status: 400 });
+    return NextResponse.json({ detail: A.invalidJson }, { status: 400 });
   }
+  const activeLocale = resolveLocale(body.locale ?? locale);
 
   const rawUrl = (body.url ?? "").trim();
   if (!rawUrl) {
-    return NextResponse.json({ detail: "La URL es obligatoria." }, { status: 422 });
+    return NextResponse.json({ detail: A.urlRequired }, { status: 422 });
   }
   const includeAi = body.include_ai ?? true;
 
   // 1. Crawling on-demand
   let data;
   try {
-    data = await fetchAndExtract(rawUrl);
+    data = await fetchAndExtract(rawUrl, activeLocale);
   } catch (e) {
     if (e instanceof CrawlerException) {
       return NextResponse.json({ detail: e.message }, { status: 502 });
@@ -53,29 +56,35 @@ async function runAudit(req: Request) {
   // 2. CWV (PageSpeed) + crawleabilidad + IA en paralelo. Nada de esto bloquea la auditoría.
   const [perf, crawl, aiAnalysis] = await Promise.all([
     fetchPerfSummary(data.url),
-    analyzeCrawlability({
-      pageUrl: data.url,
-      isNoindex,
-      canonicalUrl: data.canonical_url,
-      schemaTypes: data.structured_data.detected_types,
-      wordCount: data.content_stats.word_count,
-    }),
+    analyzeCrawlability(
+      {
+        pageUrl: data.url,
+        isNoindex,
+        canonicalUrl: data.canonical_url,
+        schemaTypes: data.structured_data.detected_types,
+        wordCount: data.content_stats.word_count,
+      },
+      activeLocale
+    ),
     includeAi
-      ? analyzeAudit({
-          url: data.url,
-          title: data.title,
-          description: data.description,
-          headings: data.headings,
-          contentSnippet: data.content_stats.text_snippet,
-          wordCount: data.content_stats.word_count,
-        }).catch(() => null)
+      ? analyzeAudit(
+          {
+            url: data.url,
+            title: data.title,
+            description: data.description,
+            headings: data.headings,
+            contentSnippet: data.content_stats.text_snippet,
+            wordCount: data.content_stats.word_count,
+          },
+          activeLocale
+        ).catch(() => null)
       : Promise.resolve(null),
   ]);
 
-  const issues = [...data.issues, ...perfIssues(perf), ...crawl.issues];
+  const issues = [...data.issues, ...perfIssues(perf, activeLocale), ...crawl.issues];
   const critical = issues.filter((i) => i.severity === "critical").length;
   const warning = issues.filter((i) => i.severity === "warning").length;
-  const score = calculateScoreFromCounts(critical, warning).score;
+  const score = calculateScoreFromCounts(critical, warning, activeLocale).score;
 
   // 3. Proyecto por dominio + persistencia en Supabase
   const supabase = getSupabase();
@@ -133,7 +142,7 @@ async function runAudit(req: Request) {
 
   if (error || !row) {
     return NextResponse.json(
-      { detail: `No se pudo persistir la auditoría: ${error?.message ?? "error desconocido"}` },
+      { detail: fill(A.persistFail, { err: error?.message ?? "?" }) },
       { status: 500 }
     );
   }

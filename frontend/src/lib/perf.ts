@@ -1,4 +1,6 @@
 import type { AuditIssue } from "./types";
+import type { Locale } from "./locale";
+import { srv, fill } from "./srv";
 
 /**
  * Core Web Vitals vía PageSpeed Insights API (lab + field/CrUX).
@@ -137,15 +139,15 @@ export async function fetchPerfSummary(pageUrl: string): Promise<PerfSummary | n
 }
 
 /** Issues derivadas de CWV. Field (CrUX) manda; lab como respaldo. */
-export function perfIssues(perf: PerfSummary | null): AuditIssue[] {
+export function perfIssues(perf: PerfSummary | null, locale: Locale = "en"): AuditIssue[] {
+  const S = srv(locale).perf;
   if (!perf) {
     return [
       {
         category: "Performance",
         severity: "warning",
-        title: "Core Web Vitals no medidos",
-        message:
-          "Configura GOOGLE_PAGESPEED_API_KEY para obtener LCP/CLS/INP de laboratorio y datos reales de campo (CrUX).",
+        title: S.unmeasuredTitle,
+        message: S.unmeasuredMsg,
       },
     ];
   }
@@ -161,27 +163,27 @@ export function perfIssues(perf: PerfSummary | null): AuditIssue[] {
 
   for (const r of rows) {
     const v = cwvVerdict(r.key, r.value);
-    const shown = r.value == null ? "sin datos" : `${r.value}${r.unit ? ` ${r.unit}` : ""}`;
+    const shown = r.value == null ? S.noValue : `${r.value}${r.unit ? ` ${r.unit}` : ""}`;
     if (v === "good") {
       issues.push({
         category: "Performance",
         severity: "ok",
-        title: `${r.label} en rango óptimo (${shown})`,
-        message: `El ${r.label} cumple los umbrales de Google.`,
+        title: fill(S.metricOkTitle, { label: r.label, v: shown }),
+        message: fill(S.metricOkMsg, { label: r.label }),
       });
     } else if (v === "needs-improvement") {
       issues.push({
         category: "Performance",
         severity: "warning",
-        title: `${r.label} necesita mejora (${shown})`,
-        message: `El ${r.label} está fuera del rango óptimo de Google y lastra experiencia y ranking.`,
+        title: fill(S.metricWarnTitle, { label: r.label, v: shown }),
+        message: fill(S.metricWarnMsg, { label: r.label }),
       });
     } else if (v === "poor") {
       issues.push({
         category: "Performance",
         severity: "critical",
-        title: `${r.label} deficiente (${shown})`,
-        message: `El ${r.label} está en rango deficiente según Google. Prioriza su corrección.`,
+        title: fill(S.metricPoorTitle, { label: r.label, v: shown }),
+        message: fill(S.metricPoorMsg, { label: r.label }),
       });
     }
   }
