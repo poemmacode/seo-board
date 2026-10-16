@@ -1,0 +1,44 @@
+services:
+  backend:
+    build: ./backend
+    container_name: seoboard-backend
+    env_file: .env
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DATABASE_URL: sqlite+aiosqlite:///./data/seoboard.db
+      CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000"]'
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+    volumes:
+      - seoboard-data:/code/data
+    ports:
+      - "8000:8000"
+    networks:
+      - seoboard-net
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: seoboard-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "3000:3000"
+    networks:
+      - seoboard-net
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  seoboard-data:
+
+networks:
+  seoboard-net:
+    driver: bridge
