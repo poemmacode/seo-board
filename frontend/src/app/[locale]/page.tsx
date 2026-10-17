@@ -46,6 +46,14 @@ const sectionLabel: Record<Section, "audit" | "bulk" | "projects" | "serp"> = {
   serp: "serp",
 };
 
+const tabLabel: Record<ReportTab, "summary" | "issues" | "headings" | "content" | "ai"> = {
+  resumen: "summary",
+  diagnosticos: "issues",
+  encabezados: "headings",
+  contenido: "content",
+  ia: "ai",
+};
+
 const scoreChip: Record<string, string> = {
   ok: "bg-emerald-950 text-emerald-300 border border-emerald-800",
   warn: "bg-amber-950 text-amber-300 border border-amber-800",
@@ -248,7 +256,7 @@ export default function Home() {
                               : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                           }`}
                         >
-                          {tReport(`tabs.${id}`)}
+                          {tReport(`tabs.${tabLabel[id]}`)}
                           {id === "diagnosticos" && score.critical > 0 && (
                             <span className="rounded-full bg-red-950 px-2 py-0.5 text-[11px] font-semibold text-red-300">
                               {score.critical}
